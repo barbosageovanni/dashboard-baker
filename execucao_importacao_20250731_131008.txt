@@ -1,0 +1,19 @@
+Log de Execução - 20250731_131008
+Arquivo CSV: Status Faturamento   Ctes vs Faturas vs Atestos.csv
+Registros processados: 376
+Registros com envio_final: 312
+Sucesso: True
+Mapeamento utilizado:
+  numero_cte: CTE
+  destinatario_nome: Remetente - Nome
+  veiculo_placa: Veículo - Placa
+  valor_total: Total
+  data_emissao: Data emissão Cte
+  data_rq_tmc: Data RQ/TMC
+  data_envio_processo: Data Envio do processo Faturamento
+  data_inclusao_fatura: Data INCLUSÃO Fatura Bsoft
+  primeiro_envio: 1° Envio
+  data_atesto: Data do atesto
+  envio_final: Envio final
+  numero_fatura: Faturas
+  observacao: OBSERVAÇÃO

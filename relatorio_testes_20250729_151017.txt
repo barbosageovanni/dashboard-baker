@@ -1,0 +1,54 @@
+RELATÓRIO DE TESTES - DASHBOARD BAKER POSTGRESQL
+============================================================
+Data/Hora: 29/07/2025 15:10:17
+Status Final: REPROVADO
+Configuração do Banco: {'host': 'localhost', 'database': 'dashboard_baker', 'user': 'postgres', 'password': 'senha123', 'port': 5432}
+
+RESUMO DOS RESULTADOS:
+------------------------------
+✅ Sucessos: 26
+❌ Falhas: 4
+⚠️ Avisos: 4
+
+DETALHES DOS TESTES:
+------------------------------
+⚠️ [AVISO] Arquivo .env não encontrado, usando configurações padrão
+✅ [SUCESSO] Python 3.13.5 - Versão adequada
+✅ [SUCESSO] pip disponível
+✅ [SUCESSO] streamlit - Interface web
+✅ [SUCESSO] pandas - Manipulação de dados
+✅ [SUCESSO] plotly - Gráficos interativos
+✅ [SUCESSO] psycopg2 - Conexão PostgreSQL
+✅ [SUCESSO] openpyxl - Arquivos Excel
+✅ [SUCESSO] dashboard_baker_web_corrigido.py - Dashboard principal
+❌ [FALHA] popular_banco_postgresql.py não encontrado - Script de população
+✅ [SUCESSO] config_banco.py - Configurações
+⚠️ [AVISO] .env não encontrado - Configurações de ambiente
+⚠️ [AVISO] requirements_postgresql.txt não encontrado - Lista de dependências
+⚠️ [AVISO] iniciar_dashboard_postgresql.bat não encontrado - Script de inicialização Windows
+✅ [SUCESSO] Conexão PostgreSQL: localhost:5432
+✅ [SUCESSO] Versão PostgreSQL: 17.5
+✅ [SUCESSO] Banco 'dashboard_baker' existe
+✅ [SUCESSO] Tabela 'dashboard_baker' existe
+✅ [SUCESSO] Estrutura da tabela: 18 colunas
+✅ [SUCESSO] Dados existentes: 349 registros
+✅ [SUCESSO] Dashboard - Sintaxe válida
+✅ [SUCESSO] Dashboard - Função 'carregar_dados_csv' encontrada
+✅ [SUCESSO] Dashboard - Função 'processar_status_faturas' encontrada
+✅ [SUCESSO] Dashboard - Função 'processar_variacoes_tempo' encontrada
+✅ [SUCESSO] Dashboard - Função 'inserir_cte_banco' encontrada
+❌ [FALHA] Dashboard - Ainda contém 'titlefont' (deveria ser 'title')
+❌ [FALHA] Script popular_banco_postgresql.py não encontrado
+✅ [SUCESSO] Inserção de dados - OK
+✅ [SUCESSO] Consulta de dados - OK
+✅ [SUCESSO] Limpeza de dados de teste - OK
+✅ [SUCESSO] CSV de teste criado
+✅ [SUCESSO] CSV carregado corretamente
+❌ [FALHA] Processamento monetário - Esperado: 6800.25, Calculado: 6801.25
+✅ [SUCESSO] CSV de teste removido
+
+RECOMENDAÇÕES:
+------------------------------
+• Corrija os problemas indicados pelas falhas
+• Execute setup_dashboard_postgresql.py se necessário
+• Verifique configurações do PostgreSQL

@@ -1,0 +1,459 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Configuração de Mapeamento de Colunas - Dashboard Baker
+Define mapeamento padrão e alternativo para importação de CSVs
+VERSÃO: 2.1 - Corrigida para incluir envio_final
+"""
+
+from datetime import datetime
+
+# ============================================================================
+# CONFIGURAÇÃO PRINCIPAL DE MAPEAMENTO
+# ============================================================================
+
+# Versão da configuração
+CONFIG_VERSION = "2.1"
+CONFIG_DATE = "2025-07-31"
+
+# Mapeamento principal baseado no arquivo real
+MAPEAMENTO_PRINCIPAL = {
+    # Campo no banco -> Coluna no CSV
+    'numero_cte': 'CTE',
+    'destinatario_nome': 'Remetente - Nome', 
+    'veiculo_placa': 'Veículo - Placa',
+    'valor_total': 'Total',
+    'data_emissao': 'Data emissão Cte',
+    'data_rq_tmc': 'Data RQ/TMC',
+    'data_envio_processo': 'Data Envio do processo Faturamento',
+    'data_inclusao_fatura': 'Data INCLUSÃO Fatura Bsoft',
+    'primeiro_envio': '1° Envio',
+    'data_atesto': 'Data do atesto',
+    'envio_final': 'Envio final',  # ⭐ CAMPO CRÍTICO
+    'numero_fatura': 'Faturas',
+    'observacao': 'OBSERVAÇÃO'
+}
+
+# Mapeamentos alternativos (caso as colunas tenham nomes diferentes)
+MAPEAMENTOS_ALTERNATIVOS = {
+    'numero_cte': [
+        'CTE', 'Numero CTE', 'NumCTE', 'N CTE', 'Nº CTE'
+    ],
+    'destinatario_nome': [
+        'Remetente - Nome', 'Destinatario', 'Cliente', 'Remetente',
+        'Destinatário - Nome', 'Nome Destinatario', 'Nome Cliente'
+    ],
+    'veiculo_placa': [
+        'Veículo - Placa', 'Veiculo', 'Placa', 'Veiculo - Placa',
+        'Placa Veiculo', 'Placa do Veiculo'
+    ],
+    'valor_total': [
+        'Total', 'Valor', 'Valor Total', 'Valor do CTE', 'Vlr Total'
+    ],
+    'data_emissao': [
+        'Data emissão Cte', 'Data Emissao', 'Emissao', 'Data CTE',
+        'Data de emissão', 'Dt Emissao'
+    ],
+    'data_rq_tmc': [
+        'Data RQ/TMC', 'RQ/TMC', 'Data RQ', 'Data TMC',
+        'RQ TMC', 'Data RQ-TMC'
+    ],
+    'data_envio_processo': [
+        'Data Envio do processo Faturamento', 'Envio Processo',
+        'Data Envio Processo', 'Envio do Processo'
+    ],
+    'data_inclusao_fatura': [
+        'Data INCLUSÃO Fatura Bsoft', 'Inclusão Fatura', 'Inclusao Fatura',
+        'Data Inclusao', 'Dt Inclusao Fatura'
+    ],
+    'primeiro_envio': [
+        '1° Envio', '1º Envio', 'Primeiro Envio', '1 Envio',
+        'Primeiro envio', '1° envio'
+    ],
+    'data_atesto': [
+        'Data do atesto', 'Atesto', 'Data Atesto', 'Dt Atesto',
+        'Data de Atesto', 'Data do Atesto'
+    ],
+    'envio_final': [
+        'Envio final', 'Envio Final', 'Final', 'Envio final CTE',
+        'Data Envio Final', 'Dt Envio Final'  # ⭐ ALTERNATIVAS IMPORTANTES
+    ],
+    'numero_fatura': [
+        'Faturas', 'Fatura', 'Numero Fatura', 'Nº Fatura',
+        'N Fatura', 'Num Fatura'
+    ],
+    'observacao': [
+        'OBSERVAÇÃO', 'Observacao', 'Obs', 'Observacoes',
+        'Observações', 'Comentario', 'Comentário'
+    ]
+}
+
+# ============================================================================
+# CONFIGURAÇÕES DE PROCESSAMENTO
+# ============================================================================
+
+# Formatos de data suportados (ordem de prioridade)
+FORMATOS_DATA = [
+    '%d/%b/%y',      # 25/jul/24 (formato brasileiro com mês abreviado)
+    '%d/%b/%Y',      # 25/jul/2024
+    '%d/%m/%Y',      # 25/07/2024
+    '%d-%m-%Y',      # 25-07-2024
+    '%Y-%m-%d',      # 2024-07-25 (ISO)
+    '%d/%m/%y',      # 25/07/24
+    '%d-%m-%y',      # 25-07-24
+    '%d.%m.%Y',      # 25.07.2024
+    '%d.%m.%y',      # 25.07.24
+    '%d %m %Y',      # 25 07 2024
+    '%d %m %y'       # 25 07 24
+]
+
+# Configurações de encoding para arquivos CSV
+ENCODINGS_SUPORTADOS = [
+    'utf-8',
+    'cp1252',        # Windows-1252 (padrão Windows)
+    'latin1',        # ISO-8859-1
+    'iso-8859-1',
+    'utf-8-sig'      # UTF-8 com BOM
+]
+
+# Separadores de CSV suportados
+SEPARADORES_CSV = [';', ',', '\t', '|']
+
+# ============================================================================
+# VALIDAÇÕES E REGRAS DE NEGÓCIO
+# ============================================================================
+
+# Campos obrigatórios para importação
+CAMPOS_OBRIGATORIOS = [
+    'numero_cte',
+    'valor_total'
+]
+
+# Campos importantes para alertas (se ausentes, mostrar aviso)
+CAMPOS_IMPORTANTES = [
+    'destinatario_nome',
+    'data_emissao',
+    'primeiro_envio',
+    'data_atesto',
+    'envio_final'  # ⭐ CRÍTICO
+]
+
+# Campos para cálculo de variações de tempo
+VARIACOES_TEMPO = [
+    {
+        'nome': 'CTE → Inclusão Fatura',
+        'campo_inicio': 'data_emissao',
+        'campo_fim': 'data_inclusao_fatura',
+        'codigo': 'cte_inclusao_fatura'
+    },
+    {
+        'nome': 'Inclusão → 1º Envio', 
+        'campo_inicio': 'data_inclusao_fatura',
+        'campo_fim': 'primeiro_envio',
+        'codigo': 'inclusao_primeiro_envio'
+    },
+    {
+        'nome': 'RQ/TMC → 1º Envio',
+        'campo_inicio': 'data_rq_tmc', 
+        'campo_fim': 'primeiro_envio',
+        'codigo': 'rq_tmc_primeiro_envio'
+    },
+    {
+        'nome': '1º Envio → Atesto',
+        'campo_inicio': 'primeiro_envio',
+        'campo_fim': 'data_atesto', 
+        'codigo': 'primeiro_envio_atesto'
+    },
+    {
+        'nome': 'Atesto → Envio Final',  # ⭐ NOVA VARIAÇÃO
+        'campo_inicio': 'data_atesto',
+        'campo_fim': 'envio_final',
+        'codigo': 'atesto_envio_final'
+    },
+    {
+        'nome': 'Processo Completo',
+        'campo_inicio': 'data_emissao',
+        'campo_fim': 'envio_final',
+        'codigo': 'processo_completo'
+    },
+    {
+        'nome': 'CTE → Baixa',
+        'campo_inicio': 'data_emissao',
+        'campo_fim': 'data_baixa',
+        'codigo': 'cte_baixa'
+    }
+]
+
+# ============================================================================
+# FUNÇÕES DE UTILIDADE
+# ============================================================================
+
+def obter_mapeamento_automatico(colunas_csv):
+    """
+    Gera mapeamento automático baseado nas colunas encontradas no CSV
+    
+    Args:
+        colunas_csv (list): Lista de colunas encontradas no CSV
+        
+    Returns:
+        dict: Mapeamento automático gerado
+    """
+    mapeamento = {}
+    colunas_normalizadas = [col.strip() for col in colunas_csv]
+    
+    for campo_banco, possiveis_nomes in MAPEAMENTOS_ALTERNATIVOS.items():
+        encontrado = False
+        
+        # Tentar mapeamento principal primeiro
+        if MAPEAMENTO_PRINCIPAL[campo_banco] in colunas_normalizadas:
+            mapeamento[campo_banco] = MAPEAMENTO_PRINCIPAL[campo_banco]
+            encontrado = True
+        else:
+            # Tentar alternativas
+            for nome_possivel in possiveis_nomes:
+                if nome_possivel in colunas_normalizadas:
+                    mapeamento[campo_banco] = nome_possivel
+                    encontrado = True
+                    break
+        
+        if not encontrado:
+            mapeamento[campo_banco] = None
+    
+    return mapeamento
+
+def validar_mapeamento(mapeamento):
+    """
+    Valida se o mapeamento tem os campos obrigatórios
+    
+    Args:
+        mapeamento (dict): Mapeamento a ser validado
+        
+    Returns:
+        tuple: (bool, list) - (válido, lista de problemas)
+    """
+    problemas = []
+    
+    # Verificar campos obrigatórios
+    for campo in CAMPOS_OBRIGATORIOS:
+        if not mapeamento.get(campo):
+            problemas.append(f"Campo obrigatório '{campo}' não mapeado")
+    
+    # Verificar campos importantes
+    campos_importantes_ausentes = []
+    for campo in CAMPOS_IMPORTANTES:
+        if not mapeamento.get(campo):
+            campos_importantes_ausentes.append(campo)
+    
+    if campos_importantes_ausentes:
+        problemas.append(f"Campos importantes ausentes: {', '.join(campos_importantes_ausentes)}")
+    
+    # Verificação especial para envio_final
+    if not mapeamento.get('envio_final'):
+        problemas.append("CRÍTICO: Campo 'envio_final' não mapeado - isso causará problemas nas métricas")
+    
+    return len(problemas) == 0, problemas
+
+def gerar_relatorio_mapeamento(mapeamento, colunas_csv):
+    """
+    Gera relatório detalhado do mapeamento
+    
+    Args:
+        mapeamento (dict): Mapeamento gerado
+        colunas_csv (list): Colunas encontradas no CSV
+        
+    Returns:
+        str: Relatório formatado
+    """
+    relatorio = []
+    relatorio.append("=" * 60)
+    relatorio.append("RELATÓRIO DE MAPEAMENTO DE COLUNAS")
+    relatorio.append("=" * 60)
+    relatorio.append(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    relatorio.append(f"Versão Config: {CONFIG_VERSION}")
+    relatorio.append("")
+    
+    # Estatísticas
+    campos_mapeados = sum(1 for v in mapeamento.values() if v)
+    campos_total = len(mapeamento)
+    colunas_total = len(colunas_csv)
+    
+    relatorio.append(f"📊 ESTATÍSTICAS:")
+    relatorio.append(f"   • Campos mapeados: {campos_mapeados}/{campos_total}")
+    relatorio.append(f"   • Colunas no CSV: {colunas_total}")
+    relatorio.append(f"   • Taxa de mapeamento: {(campos_mapeados/campos_total)*100:.1f}%")
+    relatorio.append("")
+    
+    # Mapeamento detalhado
+    relatorio.append("🎯 MAPEAMENTO DETALHADO:")
+    for campo_banco, coluna_csv in mapeamento.items():
+        if coluna_csv:
+            status = "✅"
+            if campo_banco in CAMPOS_OBRIGATORIOS:
+                status += " [OBRIGATÓRIO]"
+            elif campo_banco in CAMPOS_IMPORTANTES:
+                status += " [IMPORTANTE]"
+            
+            # Especial para envio_final
+            if campo_banco == 'envio_final':
+                status += " [CRÍTICO]"
+            
+            relatorio.append(f"   {status} {campo_banco:20} -> '{coluna_csv}'")
+        else:
+            status = "❌"
+            if campo_banco in CAMPOS_OBRIGATORIOS:
+                status += " [OBRIGATÓRIO AUSENTE]"
+            elif campo_banco == 'envio_final':
+                status += " [CRÍTICO AUSENTE]"
+            
+            relatorio.append(f"   {status} {campo_banco:20} -> NÃO MAPEADO")
+    
+    relatorio.append("")
+    
+    # Validação
+    valido, problemas = validar_mapeamento(mapeamento)
+    if valido:
+        relatorio.append("✅ VALIDAÇÃO: Mapeamento aprovado")
+    else:
+        relatorio.append("❌ VALIDAÇÃO: Problemas encontrados")
+        for problema in problemas:
+            relatorio.append(f"   • {problema}")
+    
+    relatorio.append("")
+    relatorio.append("=" * 60)
+    
+    return "\n".join(relatorio)
+
+def salvar_mapeamento_personalizado(mapeamento, nome_arquivo=None):
+    """
+    Salva mapeamento personalizado em arquivo
+    
+    Args:
+        mapeamento (dict): Mapeamento a ser salvo
+        nome_arquivo (str): Nome do arquivo (opcional)
+        
+    Returns:
+        str: Caminho do arquivo salvo
+    """
+    if not nome_arquivo:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        nome_arquivo = f'mapeamento_personalizado_{timestamp}.py'
+    
+    conteudo = f'''# Mapeamento Personalizado - Dashboard Baker
+# Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+# Versão: {CONFIG_VERSION}
+
+MAPEAMENTO_PERSONALIZADO = {{
+'''
+    
+    for campo, coluna in mapeamento.items():
+        if coluna:
+            conteudo += f"    '{campo}': '{coluna}',\n"
+        else:
+            conteudo += f"    '{campo}': None,  # NÃO MAPEADO\n"
+    
+    conteudo += '''
+}
+
+# Para usar este mapeamento:
+# 1. Importe: from mapeamento_personalizado import MAPEAMENTO_PERSONALIZADO
+# 2. Use no script de importação
+'''
+    
+    with open(nome_arquivo, 'w', encoding='utf-8') as f:
+        f.write(conteudo)
+    
+    return nome_arquivo
+
+# ============================================================================
+# CONFIGURAÇÕES DE ALERTA
+# ============================================================================
+
+# Critérios para alertas automáticos
+ALERTAS_CONFIG = {
+    'ctes_sem_aprovacao': {
+        'dias_limite': 7,
+        'campo_referencia': 'data_emissao',
+        'campo_verificacao': 'data_atesto',
+        'descricao': 'CTEs sem aprovação há mais de 7 dias'
+    },
+    'ctes_sem_faturas': {
+        'dias_limite': 3,
+        'campo_referencia': 'data_atesto', 
+        'campo_verificacao': 'numero_fatura',
+        'descricao': 'CTEs sem faturas há mais de 3 dias após atesto'
+    },
+    'faturas_vencidas': {
+        'dias_limite': 90,
+        'campo_referencia': 'data_atesto',
+        'campo_verificacao': 'data_baixa', 
+        'descricao': 'Faturas vencidas há mais de 90 dias'
+    },
+    'envio_final_pendente': {  # ⭐ NOVO ALERTA
+        'dias_limite': 5,
+        'campo_referencia': 'data_atesto',
+        'campo_verificacao': 'envio_final',
+        'descricao': 'CTEs sem envio final há mais de 5 dias após atesto'
+    }
+}
+
+# ============================================================================
+# CONFIGURAÇÕES DE QUALIDADE DE DADOS
+# ============================================================================
+
+# Critérios de qualidade para cada campo
+QUALIDADE_CRITERIOS = {
+    'numero_cte': {'minimo_preenchimento': 100, 'critico': True},
+    'destinatario_nome': {'minimo_preenchimento': 80, 'critico': False},
+    'valor_total': {'minimo_preenchimento': 95, 'critico': True},
+    'data_emissao': {'minimo_preenchimento': 90, 'critico': False},
+    'primeiro_envio': {'minimo_preenchimento': 70, 'critico': False},
+    'data_atesto': {'minimo_preenchimento': 60, 'critico': False},
+    'envio_final': {'minimo_preenchimento': 50, 'critico': True},  # ⭐ CRÍTICO
+    'numero_fatura': {'minimo_preenchimento': 40, 'critico': False}
+}
+
+# ============================================================================
+# EXEMPLO DE USO
+# ============================================================================
+
+if __name__ == "__main__":
+    # Exemplo de como usar as configurações
+    
+    print("🔧 CONFIGURAÇÃO DE MAPEAMENTO - DASHBOARD BAKER")
+    print("=" * 50)
+    
+    # Simular colunas de um CSV
+    colunas_exemplo = [
+        'CTE', 'Remetente - Nome', 'Veículo - Placa', 'Total',
+        'Data emissão Cte', 'Data RQ/TMC', '1° Envio', 
+        'Data do atesto', 'Envio final', 'Faturas', 'OBSERVAÇÃO'
+    ]
+    
+    print(f"📋 Colunas de exemplo: {len(colunas_exemplo)}")
+    
+    # Gerar mapeamento automático
+    mapeamento = obter_mapeamento_automatico(colunas_exemplo)
+    
+    # Gerar relatório
+    relatorio = gerar_relatorio_mapeamento(mapeamento, colunas_exemplo)
+    print(relatorio)
+    
+    # Validar
+    valido, problemas = validar_mapeamento(mapeamento)
+    
+    if valido:
+        print("✅ Mapeamento válido para uso")
+    else:
+        print("❌ Problemas no mapeamento:")
+        for problema in problemas:
+            print(f"   • {problema}")
+    
+    # Salvar exemplo
+    arquivo_salvo = salvar_mapeamento_personalizado(mapeamento)
+    print(f"\n💾 Exemplo salvo em: {arquivo_salvo}")
+    
+    print("\n🎯 Para usar em produção:")
+    print("   1. Importe as configurações: from config_mapeamento_colunas import *") 
+    print("   2. Use obter_mapeamento_automatico(suas_colunas)")
+    print("   3. Valide com validar_mapeamento(mapeamento)")
+    print("   4. Use o mapeamento na importação")

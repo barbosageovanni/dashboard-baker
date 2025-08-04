@@ -1,0 +1,37 @@
+{
+  "timestamp": "20250731_130956",
+  "arquivo_csv": "N/A",
+  "mapeamento_final": {
+    "numero_cte": "CTE",
+    "destinatario_nome": "Remetente - Nome",
+    "veiculo_placa": "Ve\u00edculo - Placa",
+    "valor_total": "Total",
+    "data_emissao": "Data emiss\u00e3o Cte",
+    "data_rq_tmc": "Data RQ/TMC",
+    "data_envio_processo": "Data Envio do processo Faturamento",
+    "data_inclusao_fatura": "Data INCLUS\u00c3O Fatura Bsoft",
+    "primeiro_envio": "1\u00b0 Envio",
+    "data_atesto": "Data do atesto",
+    "envio_final": "Envio final",
+    "numero_fatura": "Faturas",
+    "observacao": "OBSERVA\u00c7\u00c3O"
+  },
+  "colunas_disponiveis": [
+    "Remetente - Nome",
+    "Ve\u00edculo - Placa",
+    "CTE",
+    "Data emiss\u00e3o Cte",
+    "Total",
+    "M\u00eas emiss\u00e3o Cte",
+    "REQ/TMC/N\u00b0 Embarque",
+    "Data RQ/TMC",
+    "Data Envio do processo Faturamento",
+    "Faturas",
+    "Data INCLUS\u00c3O Fatura Bsoft",
+    "1\u00b0 Envio",
+    "Data do atesto",
+    "Envio final",
+    "OBSERVA\u00c7\u00c3O"
+  ],
+  "colunas_nao_mapeadas": []
+}
