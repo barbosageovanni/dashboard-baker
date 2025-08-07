@@ -27,6 +27,7 @@ from typing import Dict, List, Tuple, Optional
 import base64
 from io import BytesIO
 import xlsxwriter
+from decimal import Decimal
 
 # Verificar disponibilidade do psycopg2
 try:
@@ -480,6 +481,12 @@ ALERTAS_CONFIG = {
         'acao_sugerida': 'Ação judicial de cobrança',
         'impacto_financeiro': 'alto'
     },
+    'envio_final_pendente': {
+        'dias_limite': 5,
+        'prioridade': 'media',
+        'acao_sugerida': 'Completar envio final dos documentos',
+        'impacto_financeiro': 'baixo'
+    },
     'primeiro_envio_pendente': {
         'dias_limite': 10,
         'prioridade': 'alta',
@@ -767,7 +774,14 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
         'ctes_sem_aprovacao': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'ctes_sem_faturas': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'faturas_vencidas': {'qtd': 0, 'valor': 0.0, 'lista': []},
-        'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []}
+        'envio_final_pendente': {
+        'dias_limite': 5,
+        'prioridade': 'media',
+        'acao_sugerida': 'Completar envio final dos documentos',
+        'impacto_financeiro': 'baixo'
+    },
+    'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []},
+        'envio_final_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []}
     }
     
     if df.empty:
@@ -873,7 +887,29 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
                 'lista': lista_segura
             }
 
-        # 5. Alerta "Envio Final Pendente" removido conforme especificação.
+        # 5. Envio Final Pendente - REINTEGRADO
+        mask_envio_final = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > ALERTAS_CONFIG.get('envio_final_pendente', {}).get('dias_limite', 5)) &
+            (df['envio_final'].isna() | (df['envio_final'] == ''))
+        )
+        if mask_envio_final.any():
+            ctes_problema = df[mask_envio_final]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': row['numero_cte'],
+                    'destinatario_nome': row['destinatario_nome'],
+                    'valor_total': float(row['valor_total']),
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['envio_final_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
 
     except Exception as e:
         st.error(f"Erro no cálculo de alertas: {str(e)}")
@@ -1244,12 +1280,16 @@ class SistemaBaixasAutomaticas:
             
             cte_num, valor_original, baixa_existente = resultado
             
+            # CORREÇÃO: Converter Decimal para float
+            if isinstance(valor_original, Decimal):
+                valor_original = float(valor_original)
+            
             # Verificar se já tem baixa
             if baixa_existente:
                 return False, f"CTE {numero_cte} já possui baixa em {baixa_existente}"
             
-            # Validar valor da baixa se fornecido
-            if valor_baixa and abs(valor_baixa - valor_original) > 0.01:
+            # Validar valor da baixa - CORREÇÃO
+            if valor_baixa and abs(float(valor_baixa) - float(valor_original)) > 0.01:
                 observacao += f" | Valor original: R$ {valor_original:.2f}, Valor baixa: R$ {valor_baixa:.2f}"
             
             # Registrar baixa
@@ -1756,7 +1796,7 @@ def aba_dashboard_principal_expandido():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     # Alerta 1: Primeiro envio pendente
     with col1:
@@ -1789,8 +1829,38 @@ def aba_dashboard_principal_expandido():
             </div>
             """, unsafe_allow_html=True)
     
-    # Alerta 2: Faturas vencidas
+    # Alerta 2: Envio Final Pendente - ADICIONADO
     with col2:
+        alerta = alertas.get('envio_final_pendente', {'qtd': 0, 'valor': 0.0, 'lista': []})
+        if alerta['qtd'] > 0:
+            st.markdown(f"""
+            <div class="status-card-warning">
+                <div class="status-number">{alerta['qtd']}</div>
+                <div class="status-title">📤 Envio Final Pendente</div>
+                <div class="status-value">R$ {alerta['valor']:,.0f} pendentes</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander(f"Ver {alerta['qtd']} envios pendentes"):
+                for item in alerta['lista'][:10]:
+                    data_str = ""
+                    if item.get('data_atesto') and pd.notna(item['data_atesto']):
+                        try:
+                            data_str = f" ({item['data_atesto'].strftime('%d/%m/%Y')})"
+                        except:
+                            data_str = ""
+                    st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
+        else:
+            st.markdown("""
+            <div class="status-card-success">
+                <div class="status-number">0</div>
+                <div class="status-title">✅ Envio Final</div>
+                <div class="status-value">Todos enviados</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Alerta 3: Faturas vencidas
+    with col3:
         alerta = alertas['faturas_vencidas']
         if alerta['qtd'] > 0:
             st.markdown(f"""
@@ -1897,7 +1967,7 @@ def aba_dashboard_principal_expandido():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
@@ -2071,7 +2141,7 @@ def aba_sistema_baixas():
         """, unsafe_allow_html=True)
         
         with st.form("form_baixa_individual"):
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 numero_cte = st.number_input("Número do CTE", min_value=1, step=1)
@@ -2236,7 +2306,7 @@ def aba_insercao_banco():
     with st.form("form_insercao_cte"):
         st.subheader("📝 Dados do CTE")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             numero_cte = st.number_input("Número CTE", min_value=1, step=1, key="insert_cte")
@@ -2349,7 +2419,7 @@ def aba_insercao_banco():
         st.subheader(f"📝 Editando CTE {numero_edicao}")
         
         with st.form("form_edicao_cte"):
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 destinatario_edit = st.text_input("Nome do Destinatário", value=dados_cte.get('destinatario_nome', ''))
@@ -2660,7 +2730,7 @@ def aba_ctes_pendentes():
         alerta = alertas['faturas_vencidas']
         ctes_sem_baixa_todos = df[df['data_baixa'].isna()]
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("💸 Faturas Vencidas (90+ dias)")
@@ -2770,7 +2840,7 @@ def main():
             st.subheader("📊 Pré-visualização de Análises")
             
             # Análise básica de tendências
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 # Análise de sazonalidade simples
@@ -2884,7 +2954,8 @@ def main():
                                 label="📊 Download Excel",
                                 data=excel_data,
                                 file_name=f"relatorio_baker_{timestamp}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"download_excel_{timestamp}"
                             )
                         except Exception as e:
                             st.error(f"❌ Erro ao gerar Excel: {str(e)}")
@@ -2899,8 +2970,9 @@ def main():
                             st.download_button(
                                 label="📄 Download HTML",
                                 data=html_data,
-                                file_name=f"relatorio_baker_{timestamp}.html",
-                                mime="text/html"
+                                file_name=f"relatorio_baker_{timestamp2}.html",
+                                mime="text/html",
+                                key=f"download_html_{timestamp2}"
                             )
                         except Exception as e:
                             st.error(f"❌ Erro ao gerar HTML: {str(e)}")

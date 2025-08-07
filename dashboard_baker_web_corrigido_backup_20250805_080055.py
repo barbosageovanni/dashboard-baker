@@ -19,6 +19,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import numpy as np
 import os
 import json
@@ -28,32 +30,13 @@ import base64
 from io import BytesIO
 import xlsxwriter
 
-# Verificar disponibilidade do psycopg2
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    PSYCOPG2_AVAILABLE = True
-except ImportError:
-    PSYCOPG2_AVAILABLE = False
-    psycopg2 = None
-    RealDictCursor = None
-
 # Configuração da página
-try:
-    st.set_page_config(
-        page_title="Dashboard Financeiro Baker - Sistema Avançado",
-        page_icon="💰",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-except Exception:
-    # Fallback se já foi configurado
-    pass
-
-# Verificar se está em ambiente de produção
-if 'DYNO' in os.environ or 'RAILWAY_ENVIRONMENT' in os.environ:
-    # Configurações específicas para produção
-    st.markdown("🚀 **Modo Produção Ativo**")
+st.set_page_config(
+    page_title="Dashboard Financeiro Baker - Sistema Avançado",
+    page_icon="💰",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # CSS customizado expandido
 st.markdown("""
@@ -328,137 +311,42 @@ st.markdown("""
 </style>""", unsafe_allow_html=True)
 
 # ============================================================================
-# CONFIGURAÇÃO DO BANCO POSTGRESQL - VERSÃO CORRIGIDA
+# CONFIGURAÇÕES DO SISTEMA EXPANDIDO
 # ============================================================================
+
+# Configuração do banco PostgreSQL
 def carregar_configuracao_banco():
-    """Carrega configuração do banco com sistema de fallback inteligente"""
-    
-    if not PSYCOPG2_AVAILABLE:
-        st.error("❌ psycopg2-binary não encontrado. Execute: pip install psycopg2-binary")
-        st.stop()
-    
-    # Carregar variáveis de ambiente
-    _carregar_dotenv()
-    
-    # Detectar e usar configuração adequada
-    ambiente = _detectar_ambiente()
-    
-    if ambiente == 'railway':
-        config = _config_railway()
-        if _testar_conexao(config):
-            return config
-    
-    elif ambiente == 'supabase':
-        config = _config_supabase()
-        if _testar_conexao(config):
-            return config
-    
-    elif ambiente == 'render':
-        config = _config_render()
-        if _testar_conexao(config):
-            return config
-    
-    # Fallback para local
-    return _config_local()
-
-def _carregar_dotenv():
-    """Carrega variáveis de ambiente"""
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        if os.path.exists('.env'):
-            try:
-                with open('.env', 'r', encoding='utf-8') as f:
-                    for linha in f:
-                        linha = linha.strip()
-                        if linha and not linha.startswith('#') and '=' in linha:
-                            chave, valor = linha.split('=', 1)
-                            valor = valor.strip().strip('"').strip("'")
-                            os.environ[chave] = valor
-            except:
-                pass
-
-def _detectar_ambiente():
-    """Detecta ambiente atual"""
-    if os.getenv('PGHOST') and os.getenv('PGDATABASE'):
-        return 'railway'
-    elif os.getenv('DATABASE_URL'):
-        return 'render'
-    elif os.getenv('SUPABASE_HOST') and os.getenv('SUPABASE_PASSWORD'):
-        return 'supabase'
-    else:
-        return 'local'
-
-def _config_railway():
-    """Configuração Railway PostgreSQL"""
-    return {
-        'host': os.getenv('PGHOST'),
-        'database': os.getenv('PGDATABASE'),
-        'user': os.getenv('PGUSER'),
-        'password': os.getenv('PGPASSWORD'),
-        'port': int(os.getenv('PGPORT', '5432')),
-        'sslmode': 'require',
-        'connect_timeout': 10
-    }
-
-def _config_supabase():
-    """Configuração Supabase PostgreSQL"""
-    return {
-        'host': os.getenv('SUPABASE_HOST'),
-        'database': os.getenv('SUPABASE_DB', 'postgres'),
-        'user': os.getenv('SUPABASE_USER', 'postgres'),
-        'password': os.getenv('SUPABASE_PASSWORD'),
-        'port': int(os.getenv('SUPABASE_PORT', '5432')),
-        'sslmode': 'require',
-        'connect_timeout': 10
-    }
-
-def _config_render():
-    """Configuração Render PostgreSQL via DATABASE_URL"""
-    import urllib.parse as urlparse
-    
-    database_url = os.getenv('DATABASE_URL')
-    if not database_url:
-        return None
-    
-    url = urlparse.urlparse(database_url)
-    return {
-        'host': url.hostname,
-        'database': url.path[1:],
-        'user': url.username,
-        'password': url.password,
-        'port': url.port or 5432,
-        'sslmode': 'require',
-        'connect_timeout': 10
-    }
-
-def _config_local():
-    """Configuração PostgreSQL Local"""
-    return {
+    """Carrega configuração do banco do .env ou usa padrão"""
+    config = {
         'host': 'localhost',
         'database': 'dashboard_baker',
         'user': 'postgres',
-        'password': os.getenv('LOCAL_DB_PASSWORD', 'senha123'),
-        'port': 5432,
-        'connect_timeout': 5
+        'password': 'senha123',
+        'port': 5432
     }
-
-def _testar_conexao(config):
-    """Testa conexão com o banco"""
-    if not config or not config.get('host') or not config.get('password'):
-        return False
     
-    try:
-        conn = psycopg2.connect(**config)
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return True
-    except:
-        return False
+    # Tentar carregar do .env
+    if os.path.exists('.env'):
+        try:
+            with open('.env', 'r', encoding='utf-8') as f:
+                for linha in f:
+                    linha = linha.strip()
+                    if linha and not linha.startswith('#') and '=' in linha:
+                        chave, valor = linha.split('=', 1)
+                        if chave == 'DB_HOST':
+                            config['host'] = valor
+                        elif chave == 'DB_NAME':
+                            config['database'] = valor
+                        elif chave == 'DB_USER':
+                            config['user'] = valor
+                        elif chave == 'DB_PASSWORD':
+                            config['password'] = valor
+                        elif chave == 'DB_PORT':
+                            config['port'] = int(valor)
+        except:
+            pass
+    
+    return config
 
 # Configurações de Alertas Inteligentes - REMOVIDO "envio_final_pendente"
 ALERTAS_CONFIG = {
@@ -466,8 +354,14 @@ ALERTAS_CONFIG = {
         'dias_limite': 7,
         'prioridade': 'alta',
         'acao_sugerida': 'Entrar em contato com o cliente para aprovação',
-        'impacto_financeiro': 'edio'
+        'impacto_financeiro': 'medio'
     },
+'envio_final_pendente': {
+    'dias_limite': 5,
+    'prioridade': 'alta',
+    'acao_sugerida': 'Enviar documentos finais ao cliente',
+    'impacto_financeiro': 'medio'
+},
     'ctes_sem_faturas': {
         'dias_limite': 3,
         'prioridade': 'media',
@@ -549,106 +443,64 @@ VARIACOES_CONFIG = [
 ]
 
 # ============================================================================
-# FUNÇÃO DE CACHE OTIMIZADA
+# SISTEMA DE CACHE AVANÇADO
 # ============================================================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_postgresql():
-    """Carrega dados do PostgreSQL"""
+    """Carrega dados do PostgreSQL com cache otimizado"""
     try:
         config = carregar_configuracao_banco()
+        
         conn = psycopg2.connect(**config)
         
+        # Query otimizada para carregar todos os dados
         query = """
         SELECT 
-            numero_cte, destinatario_nome, veiculo_placa, valor_total,
-            data_emissao, numero_fatura, data_baixa, observacao,
-            data_inclusao_fatura, data_envio_processo, primeiro_envio,
-            data_rq_tmc, data_atesto, envio_final, origem_dados,
-            created_at, updated_at
+            numero_cte,
+            destinatario_nome,
+            veiculo_placa,
+            valor_total,
+            data_emissao,
+            numero_fatura,
+            data_baixa,
+            observacao,
+            data_inclusao_fatura,
+            data_envio_processo,
+            primeiro_envio,
+            data_rq_tmc,
+            data_atesto,
+            envio_final,
+            origem_dados,
+            created_at,
+            updated_at
         FROM dashboard_baker 
-        ORDER BY numero_cte DESC
-        LIMIT 5000;
+        ORDER BY numero_cte DESC;
         """
         
         df = pd.read_sql_query(query, conn)
         conn.close()
         
+        # Processar dados
         if not df.empty:
             # Converter datas
-            date_columns = ['data_emissao', 'data_baixa', 'data_inclusao_fatura',
-                          'data_envio_processo', 'primeiro_envio', 'data_rq_tmc',
+            date_columns = ['data_emissao', 'data_baixa', 'data_inclusao_fatura', 
+                          'data_envio_processo', 'primeiro_envio', 'data_rq_tmc', 
                           'data_atesto', 'envio_final', 'created_at', 'updated_at']
             
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], errors='coerce')
-            
-            if 'valor_total' in df.columns:
-                df['valor_total'] = pd.to_numeric(df['valor_total'], errors='coerce').fillna(0)
         
         return df
         
-    except psycopg2.OperationalError:
-        st.error("❌ Erro de conexão PostgreSQL")
-        st.info("💡 Verifique as credenciais do banco")
-        return pd.DataFrame()
-    except psycopg2.ProgrammingError:
-        st.error("❌ Tabela 'dashboard_baker' não encontrada")
-        st.info("💡 Execute: python inicializar_banco.py")
-        
-        if st.button("🔧 Criar Tabela Agora"):
-            _criar_tabela()
-            
+    except psycopg2.OperationalError as e:
+        st.error(f"❌ Erro de conexão PostgreSQL: {e}")
+        st.info("💡 Verifique se o PostgreSQL está rodando e as credenciais estão corretas")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"❌ Erro: {str(e)}")
+        st.error(f"❌ Erro ao carregar dados: {e}")
         return pd.DataFrame()
-
-def _criar_tabela():
-    """Cria tabela automaticamente"""
-    try:
-        config = carregar_configuracao_banco()
-        conn = psycopg2.connect(**config)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS dashboard_baker (
-            id SERIAL PRIMARY KEY,
-            numero_cte INTEGER UNIQUE NOT NULL,
-            destinatario_nome VARCHAR(255),
-            veiculo_placa VARCHAR(20),
-            valor_total DECIMAL(15,2),
-            data_emissao DATE,
-            numero_fatura VARCHAR(100),
-            data_baixa DATE,
-            observacao TEXT,
-            data_inclusao_fatura DATE,
-            data_envio_processo DATE,
-            primeiro_envio DATE,
-            data_rq_tmc DATE,
-            data_atesto DATE,
-            envio_final DATE,
-            origem_dados VARCHAR(50) DEFAULT 'Sistema',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        
-        INSERT INTO dashboard_baker (numero_cte, destinatario_nome, valor_total, data_emissao, origem_dados)
-        VALUES (1001, 'Cliente Exemplo', 1500.00, CURRENT_DATE, 'Auto-Setup')
-        ON CONFLICT (numero_cte) DO NOTHING;
-        """)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        st.success("✅ Tabela criada!")
-        st.cache_data.clear()
-        st.rerun()
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao criar tabela: {e}")
 
 # ============================================================================
 # SISTEMA DE ANÁLISE EXPANDIDO
@@ -2042,7 +1894,7 @@ def aba_dashboard_principal_expandido():
         st.download_button(
             label="📥 Download CSV",
             data=csv_data,
-         file_name=f"dashboard_baker_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"dashboard_baker_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
 
@@ -2968,3 +2820,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

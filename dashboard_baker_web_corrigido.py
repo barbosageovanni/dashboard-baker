@@ -19,8 +19,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import numpy as np
 import os
 import json
@@ -29,14 +27,34 @@ from typing import Dict, List, Tuple, Optional
 import base64
 from io import BytesIO
 import xlsxwriter
+from decimal import Decimal
+
+# Verificar disponibilidade do psycopg2
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    psycopg2 = None
+    RealDictCursor = None
 
 # Configuração da página
-st.set_page_config(
-    page_title="Dashboard Financeiro Baker - Sistema Avançado",
-    page_icon="💰",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+try:
+    st.set_page_config(
+        page_title="Dashboard Financeiro Baker - Sistema Avançado",
+        page_icon="💰",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+except Exception:
+    # Fallback se já foi configurado
+    pass
+
+# Verificar se está em ambiente de produção
+if 'DYNO' in os.environ or 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Configurações específicas para produção
+    st.markdown("🚀 **Modo Produção Ativo**")
 
 # CSS customizado expandido
 st.markdown("""
@@ -55,14 +73,14 @@ st.markdown("""
     .main-header {
         background: linear-gradient(135deg, #0f4c75 0%, #1e6091 100%);
         color: white !important;
-        padding: 2rem 0;
+        padding: 1rem 0;
         margin: -1rem -1rem 2rem -1rem;
         text-align: center;
         box-shadow: 0 4px 12px rgba(15, 76, 117, 0.15);
     }
     
     .main-header h1 {
-        font-size: 2.2rem;
+        font-size: 1.5rem;
         font-weight: 300;
         margin: 0;
         letter-spacing: 1px;
@@ -101,7 +119,7 @@ st.markdown("""
         top: 0;
         left: 0;
         right: 0;
-        height: 4px;
+        height: 2px;
         background: linear-gradient(90deg, #0f4c75, #1e6091);
     }
     
@@ -144,7 +162,7 @@ st.markdown("""
     .status-card-warning {
         background: white;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.0rem;
         margin: 0.5rem 0;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 4px solid #ffc107;
@@ -156,7 +174,7 @@ st.markdown("""
     .status-card-danger {
         background: white;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.0rem;
         margin: 0.5rem 0;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 4px solid #dc3545;
@@ -168,7 +186,7 @@ st.markdown("""
     .status-card-info {
         background: white;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.0rem;
         margin: 0.5rem 0;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 4px solid #17a2b8;
@@ -262,7 +280,7 @@ st.markdown("""
     .chart-container {
         background: white;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.0rem;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border: 1px solid #e3e8ee;
         margin: 1rem 0;
@@ -272,7 +290,7 @@ st.markdown("""
     .form-container {
         background: white;
         border-radius: 12px;
-        padding: 2rem;
+        padding: 1rem;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border: 1px solid #e3e8ee;
         margin: 1rem 0;
@@ -281,7 +299,7 @@ st.markdown("""
     .form-header {
         background: linear-gradient(135deg, #0f4c75 0%, #1e6091 100%);
         color: white !important;
-        padding: 1.5rem;
+        padding: 1.0rem;
         border-radius: 8px;
         margin-bottom: 1.5rem;
         text-align: center;
@@ -311,44 +329,137 @@ st.markdown("""
 </style>""", unsafe_allow_html=True)
 
 # ============================================================================
-# CONFIGURAÇÕES DO SISTEMA EXPANDIDO
+# CONFIGURAÇÃO DO BANCO POSTGRESQL - VERSÃO CORRIGIDA
 # ============================================================================
-
-# Configuração do banco SUPABASE 
 def carregar_configuracao_banco():
-    """Carrega configuração do banco - SUPABASE GRATUITO"""
-    config = {
-        'host': st.secrets.get("DB_HOST", "localhost"),
-        'database': st.secrets.get("DB_NAME", "postgres"),
-        'user': st.secrets.get("DB_USER", "postgres"),
-        'password': st.secrets.get("DB_PASSWORD", "senha123"),
-        'port': int(st.secrets.get("DB_PORT", 5432)),
-        'sslmode': 'require'  # IMPORTANTE para Supabase
+    """Carrega configuração do banco com sistema de fallback inteligente"""
+    
+    if not PSYCOPG2_AVAILABLE:
+        st.error("❌ psycopg2-binary não encontrado. Execute: pip install psycopg2-binary")
+        st.stop()
+    
+    # Carregar variáveis de ambiente
+    _carregar_dotenv()
+    
+    # Detectar e usar configuração adequada
+    ambiente = _detectar_ambiente()
+    
+    if ambiente == 'railway':
+        config = _config_railway()
+        if _testar_conexao(config):
+            return config
+    
+    elif ambiente == 'supabase':
+        config = _config_supabase()
+        if _testar_conexao(config):
+            return config
+    
+    elif ambiente == 'render':
+        config = _config_render()
+        if _testar_conexao(config):
+            return config
+    
+    # Fallback para local
+    return _config_local()
+
+def _carregar_dotenv():
+    """Carrega variáveis de ambiente"""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        if os.path.exists('.env'):
+            try:
+                with open('.env', 'r', encoding='utf-8') as f:
+                    for linha in f:
+                        linha = linha.strip()
+                        if linha and not linha.startswith('#') and '=' in linha:
+                            chave, valor = linha.split('=', 1)
+                            valor = valor.strip().strip('"').strip("'")
+                            os.environ[chave] = valor
+            except:
+                pass
+
+def _detectar_ambiente():
+    """Detecta ambiente atual"""
+    if os.getenv('PGHOST') and os.getenv('PGDATABASE'):
+        return 'railway'
+    elif os.getenv('DATABASE_URL'):
+        return 'render'
+    elif os.getenv('SUPABASE_HOST') and os.getenv('SUPABASE_PASSWORD'):
+        return 'supabase'
+    else:
+        return 'local'
+
+def _config_railway():
+    """Configuração Railway PostgreSQL"""
+    return {
+        'host': os.getenv('PGHOST'),
+        'database': os.getenv('PGDATABASE'),
+        'user': os.getenv('PGUSER'),
+        'password': os.getenv('PGPASSWORD'),
+        'port': int(os.getenv('PGPORT', '5432')),
+        'sslmode': 'require',
+        'connect_timeout': 10
     }
-    return config
+
+def _config_supabase():
+    """Configuração Supabase PostgreSQL"""
+    return {
+        'host': os.getenv('SUPABASE_HOST'),
+        'database': os.getenv('SUPABASE_DB', 'postgres'),
+        'user': os.getenv('SUPABASE_USER', 'postgres'),
+        'password': os.getenv('SUPABASE_PASSWORD'),
+        'port': int(os.getenv('SUPABASE_PORT', '5432')),
+        'sslmode': 'require',
+        'connect_timeout': 10
+    }
+
+def _config_render():
+    """Configuração Render PostgreSQL via DATABASE_URL"""
+    import urllib.parse as urlparse
     
-    # Tentar carregar do .env
-    if os.path.exists('.env'):
-        try:
-            with open('.env', 'r', encoding='utf-8') as f:
-                for linha in f:
-                    linha = linha.strip()
-                    if linha and not linha.startswith('#') and '=' in linha:
-                        chave, valor = linha.split('=', 1)
-                        if chave == 'DB_HOST':
-                            config['host'] = valor
-                        elif chave == 'DB_NAME':
-                            config['database'] = valor
-                        elif chave == 'DB_USER':
-                            config['user'] = valor
-                        elif chave == 'DB_PASSWORD':
-                            config['password'] = valor
-                        elif chave == 'DB_PORT':
-                            config['port'] = int(valor)
-        except:
-            pass
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        return None
     
-    return config
+    url = urlparse.urlparse(database_url)
+    return {
+        'host': url.hostname,
+        'database': url.path[1:],
+        'user': url.username,
+        'password': url.password,
+        'port': url.port or 5432,
+        'sslmode': 'require',
+        'connect_timeout': 10
+    }
+
+def _config_local():
+    """Configuração PostgreSQL Local"""
+    return {
+        'host': 'localhost',
+        'database': 'dashboard_baker',
+        'user': 'postgres',
+        'password': os.getenv('LOCAL_DB_PASSWORD', 'senha123'),
+        'port': 5432,
+        'connect_timeout': 5
+    }
+
+def _testar_conexao(config):
+    """Testa conexão com o banco"""
+    if not config or not config.get('host') or not config.get('password'):
+        return False
+    
+    try:
+        conn = psycopg2.connect(**config)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return True
+    except:
+        return False
 
 # Configurações de Alertas Inteligentes - REMOVIDO "envio_final_pendente"
 ALERTAS_CONFIG = {
@@ -356,14 +467,8 @@ ALERTAS_CONFIG = {
         'dias_limite': 7,
         'prioridade': 'alta',
         'acao_sugerida': 'Entrar em contato com o cliente para aprovação',
-        'impacto_financeiro': 'medio'
+        'impacto_financeiro': 'edio'
     },
-'envio_final_pendente': {
-    'dias_limite': 5,
-    'prioridade': 'alta',
-    'acao_sugerida': 'Enviar documentos finais ao cliente',
-    'impacto_financeiro': 'medio'
-},
     'ctes_sem_faturas': {
         'dias_limite': 3,
         'prioridade': 'media',
@@ -375,6 +480,12 @@ ALERTAS_CONFIG = {
         'prioridade': 'critica',
         'acao_sugerida': 'Ação judicial de cobrança',
         'impacto_financeiro': 'alto'
+    },
+    'envio_final_pendente': {
+        'dias_limite': 5,
+        'prioridade': 'media',
+        'acao_sugerida': 'Completar envio final dos documentos',
+        'impacto_financeiro': 'baixo'
     },
     'primeiro_envio_pendente': {
         'dias_limite': 10,
@@ -445,64 +556,106 @@ VARIACOES_CONFIG = [
 ]
 
 # ============================================================================
-# SISTEMA DE CACHE AVANÇADO
+# FUNÇÃO DE CACHE OTIMIZADA
 # ============================================================================
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def carregar_dados_postgresql():
-    """Carrega dados do PostgreSQL com cache otimizado"""
+    """Carrega dados do PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
-        
         conn = psycopg2.connect(**config)
         
-        # Query otimizada para carregar todos os dados
         query = """
         SELECT 
-            numero_cte,
-            destinatario_nome,
-            veiculo_placa,
-            valor_total,
-            data_emissao,
-            numero_fatura,
-            data_baixa,
-            observacao,
-            data_inclusao_fatura,
-            data_envio_processo,
-            primeiro_envio,
-            data_rq_tmc,
-            data_atesto,
-            envio_final,
-            origem_dados,
-            created_at,
-            updated_at
+            numero_cte, destinatario_nome, veiculo_placa, valor_total,
+            data_emissao, numero_fatura, data_baixa, observacao,
+            data_inclusao_fatura, data_envio_processo, primeiro_envio,
+            data_rq_tmc, data_atesto, envio_final, origem_dados,
+            created_at, updated_at
         FROM dashboard_baker 
-        ORDER BY numero_cte DESC;
+        ORDER BY numero_cte DESC
+        LIMIT 5000;
         """
         
         df = pd.read_sql_query(query, conn)
         conn.close()
         
-        # Processar dados
         if not df.empty:
             # Converter datas
-            date_columns = ['data_emissao', 'data_baixa', 'data_inclusao_fatura', 
-                          'data_envio_processo', 'primeiro_envio', 'data_rq_tmc', 
+            date_columns = ['data_emissao', 'data_baixa', 'data_inclusao_fatura',
+                          'data_envio_processo', 'primeiro_envio', 'data_rq_tmc',
                           'data_atesto', 'envio_final', 'created_at', 'updated_at']
             
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], errors='coerce')
+            
+            if 'valor_total' in df.columns:
+                df['valor_total'] = pd.to_numeric(df['valor_total'], errors='coerce').fillna(0)
         
         return df
         
-    except psycopg2.OperationalError as e:
-        st.error(f"❌ Erro de conexão PostgreSQL: {e}")
-        st.info("💡 Verifique se o PostgreSQL está rodando e as credenciais estão corretas")
+    except psycopg2.OperationalError:
+        st.error("❌ Erro de conexão PostgreSQL")
+        st.info("💡 Verifique as credenciais do banco")
+        return pd.DataFrame()
+    except psycopg2.ProgrammingError:
+        st.error("❌ Tabela 'dashboard_baker' não encontrada")
+        st.info("💡 Execute: python inicializar_banco.py")
+        
+        if st.button("🔧 Criar Tabela Agora"):
+            _criar_tabela()
+            
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"❌ Erro ao carregar dados: {e}")
+        st.error(f"❌ Erro: {str(e)}")
         return pd.DataFrame()
+
+def _criar_tabela():
+    """Cria tabela automaticamente"""
+    try:
+        config = carregar_configuracao_banco()
+        conn = psycopg2.connect(**config)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dashboard_baker (
+            id SERIAL PRIMARY KEY,
+            numero_cte INTEGER UNIQUE NOT NULL,
+            destinatario_nome VARCHAR(255),
+            veiculo_placa VARCHAR(20),
+            valor_total DECIMAL(15,2),
+            data_emissao DATE,
+            numero_fatura VARCHAR(100),
+            data_baixa DATE,
+            observacao TEXT,
+            data_inclusao_fatura DATE,
+            data_envio_processo DATE,
+            primeiro_envio DATE,
+            data_rq_tmc DATE,
+            data_atesto DATE,
+            envio_final DATE,
+            origem_dados VARCHAR(50) DEFAULT 'Sistema',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        INSERT INTO dashboard_baker (numero_cte, destinatario_nome, valor_total, data_emissao, origem_dados)
+        VALUES (1001, 'Cliente Exemplo', 1500.00, CURRENT_DATE, 'Auto-Setup')
+        ON CONFLICT (numero_cte) DO NOTHING;
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        st.success("✅ Tabela criada!")
+        st.cache_data.clear()
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Erro ao criar tabela: {e}")
 
 # ============================================================================
 # SISTEMA DE ANÁLISE EXPANDIDO
@@ -616,16 +769,270 @@ def gerar_metricas_expandidas(df: pd.DataFrame) -> Dict:
     }
 
 def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
-    """Sistema de alertas inteligentes - CORRIGIDO para tratar valores NaT"""
+    """Sistema de alertas inteligentes - CORRIGIDO PARA SINCRONIZAÇÃO"""
     alertas = {
         'ctes_sem_aprovacao': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'ctes_sem_faturas': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'faturas_vencidas': {'qtd': 0, 'valor': 0.0, 'lista': []},
-        'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []}
+        'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []},
+        'envio_final_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []}
     }
     
     if df.empty:
         return alertas
+    
+    hoje = pd.Timestamp.now().normalize()
+    
+    try:
+        # 1. Primeiro envio pendente - LÓGICA CORRIGIDA
+        mask_primeiro_envio = (
+            df['data_emissao'].notna() & 
+            ((hoje - df['data_emissao']).dt.days > 10) &
+            (df['primeiro_envio'].isna() | (df['primeiro_envio'] == ''))
+        )
+        
+        if mask_primeiro_envio.any():
+            ctes_problema = df[mask_primeiro_envio]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_emissao': row['data_emissao'] if pd.notna(row['data_emissao']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['primeiro_envio_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 2. Envio Final Pendente - NOVO
+        mask_envio_final = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 5) &
+            (df['envio_final'].isna() | (df['envio_final'] == ''))
+        )
+        
+        if mask_envio_final.any():
+            ctes_problema = df[mask_envio_final]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+                
+            alertas['envio_final_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 3. Faturas vencidas - MANTIDO
+        mask_vencidas = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 90) &
+            (df['data_baixa'].isna() | (df['data_baixa'] == ''))
+        )
+        
+        if mask_vencidas.any():
+            ctes_problema = df[mask_vencidas]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['faturas_vencidas'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+
+    except Exception as e:
+        st.error(f"Erro no cálculo de alertas: {str(e)}")
+    
+    return alertas
+    
+    hoje = pd.Timestamp.now().normalize()
+    
+    try:
+        # 1. Primeiro envio pendente - CORRIGIDO
+        # Critério: CTEs emitidos há mais de 10 dias SEM primeiro envio
+        mask_primeiro_envio = (
+            df['data_emissao'].notna() & 
+            ((hoje - df['data_emissao']).dt.days > 10) &
+            (df['primeiro_envio'].isna() | (df['primeiro_envio'] == ''))
+        )
+        
+        if mask_primeiro_envio.any():
+            ctes_problema = df[mask_primeiro_envio]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_emissao': row['data_emissao'] if pd.notna(row['data_emissao']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['primeiro_envio_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 2. Envio Final Pendente - NOVO 
+        # Critério: CTEs com atesto há mais de 5 dias SEM envio final
+        mask_envio_final = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 5) &
+            (df['envio_final'].isna() | (df['envio_final'] == ''))
+        )
+        
+        if mask_envio_final.any():
+            ctes_problema = df[mask_envio_final]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+                
+            alertas['envio_final_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 3. Faturas vencidas - MANTIDO
+        mask_vencidas = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 90) &
+            (df['data_baixa'].isna() | (df['data_baixa'] == ''))
+        )
+        
+        if mask_vencidas.any():
+            ctes_problema = df[mask_vencidas]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['faturas_vencidas'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+
+    except Exception as e:
+        print(f"Erro no cálculo de alertas: {str(e)}")
+    
+    return alertas
+    
+    hoje = pd.Timestamp.now().normalize()
+    
+    try:
+        # 1. Primeiro envio pendente - CORRIGIDO
+        # Critério: CTEs emitidos há mais de 10 dias SEM primeiro envio
+        mask_primeiro_envio = (
+            df['data_emissao'].notna() & 
+            ((hoje - df['data_emissao']).dt.days > 10) &
+            (df['primeiro_envio'].isna() | (df['primeiro_envio'] == ''))
+        )
+        
+        if mask_primeiro_envio.any():
+            ctes_problema = df[mask_primeiro_envio]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_emissao': row['data_emissao'] if pd.notna(row['data_emissao']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['primeiro_envio_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 2. Envio Final Pendente - NOVO 
+        # Critério: CTEs com atesto há mais de 5 dias SEM envio final
+        mask_envio_final = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 5) &
+            (df['envio_final'].isna() | (df['envio_final'] == ''))
+        )
+        
+        if mask_envio_final.any():
+            ctes_problema = df[mask_envio_final]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+                
+            alertas['envio_final_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+        
+        # 3. Faturas vencidas - MANTIDO
+        mask_vencidas = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > 90) &
+            (df['data_baixa'].isna() | (df['data_baixa'] == ''))
+        )
+        
+        if mask_vencidas.any():
+            ctes_problema = df[mask_vencidas]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': int(row['numero_cte']) if pd.notna(row['numero_cte']) else 0,
+                    'destinatario_nome': str(row['destinatario_nome']) if pd.notna(row['destinatario_nome']) else 'N/A',
+                    'valor_total': float(row['valor_total']) if pd.notna(row['valor_total']) else 0.0,
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['faturas_vencidas'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
+
+    except Exception as e:
+        print(f"Erro no cálculo de alertas: {str(e)}")
+    
+    return alertas
     
     hoje = pd.Timestamp.now().normalize()
     
@@ -727,7 +1134,29 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
                 'lista': lista_segura
             }
 
-        # 5. Alerta "Envio Final Pendente" removido conforme especificação.
+        # 5. Envio Final Pendente - REINTEGRADO
+        mask_envio_final = (
+            df['data_atesto'].notna() & 
+            ((hoje - df['data_atesto']).dt.days > ALERTAS_CONFIG.get('envio_final_pendente', {}).get('dias_limite', 5)) &
+            (df['envio_final'].isna() | (df['envio_final'] == ''))
+        )
+        if mask_envio_final.any():
+            ctes_problema = df[mask_envio_final]
+            lista_segura = []
+            for _, row in ctes_problema.iterrows():
+                item = {
+                    'numero_cte': row['numero_cte'],
+                    'destinatario_nome': row['destinatario_nome'],
+                    'valor_total': float(row['valor_total']),
+                    'data_atesto': row['data_atesto'] if pd.notna(row['data_atesto']) else None
+                }
+                lista_segura.append(item)
+            
+            alertas['envio_final_pendente'] = {
+                'qtd': len(ctes_problema),
+                'valor': float(ctes_problema['valor_total'].sum()),
+                'lista': lista_segura
+            }
 
     except Exception as e:
         st.error(f"Erro no cálculo de alertas: {str(e)}")
@@ -1098,12 +1527,16 @@ class SistemaBaixasAutomaticas:
             
             cte_num, valor_original, baixa_existente = resultado
             
+            # CORREÇÃO: Converter Decimal para float
+            if isinstance(valor_original, Decimal):
+                valor_original = float(valor_original)
+            
             # Verificar se já tem baixa
             if baixa_existente:
                 return False, f"CTE {numero_cte} já possui baixa em {baixa_existente}"
             
-            # Validar valor da baixa se fornecido
-            if valor_baixa and abs(valor_baixa - valor_original) > 0.01:
+            # Validar valor da baixa - CORREÇÃO
+            if valor_baixa and abs(float(valor_baixa) - float(valor_original)) > 0.01:
                 observacao += f" | Valor original: R$ {valor_original:.2f}, Valor baixa: R$ {valor_baixa:.2f}"
             
             # Registrar baixa
@@ -1601,16 +2034,18 @@ def aba_dashboard_principal_expandido():
         """, unsafe_allow_html=True)
     
     # ===============================
-    # SEÇÃO 2: SISTEMA DE ALERTAS INTELIGENTES (APENAS 2 ALERTAS)
+        # ===============================
+        # ===============================
+    # SEÇÃO 2: SISTEMA DE ALERTAS INTELIGENTES - CORRIGIDO
     # ===============================
     st.markdown("""
     <div class="section-header">
         <div class="section-title">🚨 Sistema de Alertas Inteligentes</div>
-        <div class="section-subtitle">Monitoramento proativo com ações sugeridas</div>
+        <div class="section-subtitle">Monitoramento proativo com ações sugeridas - 4 Colunas</div>
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
     
     # Alerta 1: Primeiro envio pendente
     with col1:
@@ -1625,15 +2060,14 @@ def aba_dashboard_principal_expandido():
             """, unsafe_allow_html=True)
             
             with st.expander(f"Ver {alerta['qtd']} CTEs pendentes"):
-                for item in alerta['lista'][:10]:  # Máximo 10
-                    # Tratar data_emissao None de forma segura
+                for item in alerta['lista'][:10]:
                     data_str = ""
                     if item.get('data_emissao') and pd.notna(item['data_emissao']):
                         try:
                             data_str = f" ({item['data_emissao'].strftime('%d/%m/%Y')})"
                         except:
                             data_str = ""
-                    st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
+                    st.write(f"CTE **{item['numero_cte']}** - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
         else:
             st.markdown("""
             <div class="status-card-success">
@@ -1643,8 +2077,38 @@ def aba_dashboard_principal_expandido():
             </div>
             """, unsafe_allow_html=True)
     
-    # Alerta 2: Faturas vencidas
+    # Alerta 2: Envio Final Pendente - NOVO
     with col2:
+        alerta = alertas['envio_final_pendente']
+        if alerta['qtd'] > 0:
+            st.markdown(f"""
+            <div class="status-card-warning">
+                <div class="status-number">{alerta['qtd']}</div>
+                <div class="status-title">📤 Envio Final Pendente</div>
+                <div class="status-value">R$ {alerta['valor']:,.0f} pendentes</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander(f"Ver {alerta['qtd']} envios pendentes"):
+                for item in alerta['lista'][:10]:
+                    data_str = ""
+                    if item.get('data_atesto') and pd.notna(item['data_atesto']):
+                        try:
+                            data_str = f" ({item['data_atesto'].strftime('%d/%m/%Y')})"
+                        except:
+                            data_str = ""
+                    st.write(f"CTE **{item['numero_cte']}** - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
+        else:
+            st.markdown("""
+            <div class="status-card-success">
+                <div class="status-number">0</div>
+                <div class="status-title">✅ Envio Final</div>
+                <div class="status-value">Todos enviados</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Alerta 3: Faturas vencidas
+    with col3:
         alerta = alertas['faturas_vencidas']
         if alerta['qtd'] > 0:
             st.markdown(f"""
@@ -1657,20 +2121,42 @@ def aba_dashboard_principal_expandido():
             
             with st.expander(f"Ver {alerta['qtd']} faturas vencidas"):
                 for item in alerta['lista'][:10]:
-                    # Calcular dias de atraso de forma segura
                     days_overdue = 0
                     if item.get('data_atesto') and pd.notna(item['data_atesto']):
                         try:
                             days_overdue = (datetime.now().date() - item['data_atesto'].date()).days
                         except:
                             days_overdue = 0
-                    st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f} ({days_overdue} dias)")
+                    st.write(f"CTE **{item['numero_cte']}** - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f} ({days_overdue} dias)")
         else:
             st.markdown("""
             <div class="status-card-success">
                 <div class="status-number">0</div>
-                <div class="status-title">✅ Faturas Vencidas</div>
-                <div class="status-value">Nenhuma inadimplente</div>
+                <div class="status-title">✅ Faturas OK</div>
+                <div class="status-value">Nenhuma vencida</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Alerta 4: Resumo geral
+    with col4:
+        total_alertas = (alertas['primeiro_envio_pendente']['qtd'] + 
+                        alertas['envio_final_pendente']['qtd'] + 
+                        alertas['faturas_vencidas']['qtd'])
+        
+        if total_alertas > 0:
+            st.markdown(f"""
+            <div class="status-card-warning">
+                <div class="status-number">{total_alertas}</div>
+                <div class="status-title">⚠️ Total Alertas</div>
+                <div class="status-value">Requerem atenção</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="status-card-success">
+                <div class="status-number">0</div>
+                <div class="status-title">🎉 Sistema OK</div>
+                <div class="status-value">Tudo funcionando</div>
             </div>
             """, unsafe_allow_html=True)
     
@@ -1686,7 +2172,7 @@ def aba_dashboard_principal_expandido():
     
     if variacoes:
         # Cards de variações em grid
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         variacoes_lista = list(variacoes.items())
         
@@ -1751,7 +2237,7 @@ def aba_dashboard_principal_expandido():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
@@ -1798,7 +2284,7 @@ def aba_dashboard_principal_expandido():
     """, unsafe_allow_html=True)
     
     # Filtros
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         # Filtro por cliente
@@ -1896,7 +2382,7 @@ def aba_dashboard_principal_expandido():
         st.download_button(
             label="📥 Download CSV",
             data=csv_data,
-            file_name=f"dashboard_baker_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+         file_name=f"dashboard_baker_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
 
@@ -1925,7 +2411,7 @@ def aba_sistema_baixas():
         """, unsafe_allow_html=True)
         
         with st.form("form_baixa_individual"):
-            col1, col2 = st.columns(2)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 numero_cte = st.number_input("Número do CTE", min_value=1, step=1)
@@ -2090,7 +2576,7 @@ def aba_insercao_banco():
     with st.form("form_insercao_cte"):
         st.subheader("📝 Dados do CTE")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             numero_cte = st.number_input("Número CTE", min_value=1, step=1, key="insert_cte")
@@ -2203,7 +2689,7 @@ def aba_insercao_banco():
         st.subheader(f"📝 Editando CTE {numero_edicao}")
         
         with st.form("form_edicao_cte"):
-            col1, col2 = st.columns(2)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 destinatario_edit = st.text_input("Nome do Destinatário", value=dados_cte.get('destinatario_nome', ''))
@@ -2514,7 +3000,7 @@ def aba_ctes_pendentes():
         alerta = alertas['faturas_vencidas']
         ctes_sem_baixa_todos = df[df['data_baixa'].isna()]
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.subheader("💸 Faturas Vencidas (90+ dias)")
@@ -2624,7 +3110,7 @@ def main():
             st.subheader("📊 Pré-visualização de Análises")
             
             # Análise básica de tendências
-            col1, col2 = st.columns(2)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 # Análise de sazonalidade simples
@@ -2738,7 +3224,8 @@ def main():
                                 label="📊 Download Excel",
                                 data=excel_data,
                                 file_name=f"relatorio_baker_{timestamp}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"download_excel_{timestamp}"
                             )
                         except Exception as e:
                             st.error(f"❌ Erro ao gerar Excel: {str(e)}")
@@ -2753,8 +3240,9 @@ def main():
                             st.download_button(
                                 label="📄 Download HTML",
                                 data=html_data,
-                                file_name=f"relatorio_baker_{timestamp}.html",
-                                mime="text/html"
+                                file_name=f"relatorio_baker_{timestamp2}.html",
+                                mime="text/html",
+                                key=f"download_html_{timestamp2}"
                             )
                         except Exception as e:
                             st.error(f"❌ Erro ao gerar HTML: {str(e)}")
@@ -2822,4 +3310,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
