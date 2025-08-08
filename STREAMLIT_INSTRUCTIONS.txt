@@ -1,0 +1,30 @@
+
+🚨 SUA APP ESTÁ USANDO VERSÃO ANTIGA - AÇÃO NECESSÁRIA:
+
+📍 ACESSE: https://share.streamlit.io/
+
+🗑️ DELETAR APP ATUAL:
+   1. Encontre: "dashboard-transpontual"
+   2. Clique nos 3 pontinhos (⋯)
+   3. Escolha "Delete app"
+   4. Confirme a exclusão
+
+➕ CRIAR APP NOVA:
+   5. Clique "New app"
+   6. Repository: barbosageovanni/dashboard-baker
+   7. Branch: main
+   8. Main file: dashboard_baker_web_corrigido.py
+   9. App URL: dashboard-transpontual
+
+🔑 CONFIGURAR SECRETS:
+   10. Settings > Secrets
+   11. Cole EXATAMENTE:
+
+PGHOST = "db.lijtncazuwnbydeqtoyz.supabase.co"
+PGDATABASE = "postgres"
+PGUSER = "postgres" 
+PGPASSWORD = "SEQAg17334"
+PGPORT = "5432"
+
+⏳ AGUARDAR: 3-8 minutos para deploy completo
+        
