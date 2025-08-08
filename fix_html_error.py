@@ -1,6 +1,71 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+FIX HTML ERROR - Remove HTML problemático do Dashboard Baker v3.0
+"""
+
+import os
+import shutil
+from datetime import datetime
+
+def fix_html_issues():
+    """Remove HTML customizado problemático"""
+    
+    print("🔧 CORRIGINDO ERRO DE HTML NO DASHBOARD")
+    print("="*50)
+    
+    # Fazer backup
+    original = "dashboard_baker_web_corrigido.py"
+    backup = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py"
+    
+    if os.path.exists(original):
+        shutil.copy2(original, backup)
+        print(f"✅ Backup criado: {backup}")
+    
+    # Ler arquivo atual
+    with open(original, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Remover HTML customizado problemático
+    print("🔍 Removendo HTML customizado...")
+    
+    # 1. Remover todo o CSS customizado
+    if "st.markdown(\"\"\"" in content and "<style>" in content:
+        # Encontrar e remover blocos de CSS
+        import re
+        # Padrão para encontrar st.markdown com CSS
+        pattern = r'st\.markdown\(\"\"\"\s*<style>.*?</style>.*?\"\"\",\s*unsafe_allow_html=True\)'
+        content = re.sub(pattern, '# CSS removido', content, flags=re.DOTALL)
+        print("   ✅ CSS customizado removido")
+    
+    # 2. Substituir HTML complexo por versões simples
+    replacements = [
+        # Remover divs com classes customizadas
+        (r'<div class="[^"]*">', ''),
+        (r'</div>', ''),
+        # Remover spans
+        (r'<span[^>]*>', ''),
+        (r'</span>', ''),
+        # Simplificar headers
+        (r'<h1[^>]*>(.*?)</h1>', r'st.title("\1")'),
+        (r'<h2[^>]*>(.*?)</h2>', r'st.header("\1")'),
+        (r'<h3[^>]*>(.*?)</h3>', r'st.subheader("\1")'),
+    ]
+    
+    for pattern, replacement in replacements:
+        import re
+        content = re.sub(pattern, replacement, content)
+    
+    # 3. Remover unsafe_allow_html onde possível
+    content = content.replace(', unsafe_allow_html=True', '')
+    print("   ✅ HTML unsafe removido")
+    
+    # 4. Criar versão limpa
+    print("\n📝 Criando versão limpa...")
+    
+    clean_version = '''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Dashboard Baker v3.0 - VERSÃO LIMPA (Sem HTML customizado)
 Sistema de Gestão Financeira com PostgreSQL
 """
@@ -311,3 +376,33 @@ with st.sidebar:
 
 if __name__ == "__main__":
     main()
+'''
+    
+    # Salvar versão limpa
+    with open("dashboard_baker_web_corrigido.py", 'w', encoding='utf-8') as f:
+        f.write(clean_version)
+    
+    print("✅ Versão limpa criada com sucesso!")
+    
+    # Criar requirements atualizado
+    with open("requirements.txt", 'w') as f:
+        f.write("""streamlit==1.32.0
+pandas==2.0.3
+plotly==5.18.0
+psycopg2-binary==2.9.9
+xlsxwriter==3.1.9""")
+    
+    print("✅ requirements.txt atualizado")
+    
+    print("\n" + "="*50)
+    print("PRÓXIMOS PASSOS:")
+    print("="*50)
+    print("1. Execute: git add .")
+    print("2. Execute: git commit -m 'Fix HTML error - Clean version'")
+    print("3. Execute: git push origin main")
+    print("4. Aguarde 2-3 minutos para o Streamlit recarregar")
+    print("\nA versão limpa não tem HTML customizado que cause erros!")
+
+if __name__ == "__main__":
+    fix_html_issues()
+    input("\nPressione Enter para sair...")
