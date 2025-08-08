@@ -28,6 +28,10 @@ import base64
 from io import BytesIO
 import xlsxwriter
 from decimal import Decimal
+import uuid
+import os
+
+os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
 
 # Verificar disponibilidade do psycopg2
 try:
@@ -912,7 +916,7 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
             }
 
     except Exception as e:
-        st.error(f"Erro no cálculo de alertas: {str(e)}")
+       st.warning(f"⚠️ Aviso no cálculo de alertas: {str(e)}")
     
     return alertas
 
@@ -2109,12 +2113,14 @@ def aba_dashboard_principal_expandido():
         
         # Opção de download
         csv_data = df_display.to_csv(index=False)
-        st.download_button(
-            label="📥 Download CSV",
-            data=csv_data,
-         file_name=f"dashboard_baker_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
-        )
+     timestamp_csv = datetime.now().strftime('%Y%m%d_%H%M')
+st.download_button(
+    label="📥 Download CSV",
+    data=csv_data,
+    file_name=f"baker_filtrado_{timestamp_csv}.csv",
+    mime="text/csv",
+    key=get_unique_key("download_csv_filtrado")  # KEY ÚNICA
+)
 
 def aba_sistema_baixas():
     """Nova aba para o sistema de baixas automáticas"""
@@ -2336,7 +2342,8 @@ def aba_insercao_banco():
             origem_dados = st.selectbox("Origem dos Dados", ["Manual", "CSV", "API"])
         
         # Botão de submissão
-        submitted = st.form_submit_button("💾 Inserir CTE", type="primary")
+        submitted = st.form_submit_button("💾 Inserir CTE", type="primary", use_container_width=True)
+
         
         if submitted:
             if numero_cte and destinatario and valor_total > 0:
