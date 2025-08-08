@@ -2113,14 +2113,14 @@ def aba_dashboard_principal_expandido():
         
         # Opção de download
         csv_data = df_display.to_csv(index=False)
-     timestamp_csv = datetime.now().strftime('%Y%m%d_%H%M')
-st.download_button(
-    label="📥 Download CSV",
-    data=csv_data,
-    file_name=f"baker_filtrado_{timestamp_csv}.csv",
-    mime="text/csv",
-    key=get_unique_key("download_csv_filtrado")  # KEY ÚNICA
-)
+        timestamp_csv = datetime.now().strftime('%Y%m%d_%H%M')
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv_data,
+            file_name=f"baker_filtrado_{timestamp_csv}.csv",
+            mime="text/csv",
+            key="download_csv_filtrado"
+        )
 
 def aba_sistema_baixas():
     """Nova aba para o sistema de baixas automáticas"""
