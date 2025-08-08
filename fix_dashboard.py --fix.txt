@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Script Automatizado de Correção - Dashboard Baker v3.0
+Resolve automaticamente problemas de deploy e configuração
+"""
+
+import os
+import sys
+import subprocess
+import time
+from datetime import datetime
+
+class DashboardFixer:
+    def __init__(self):
+        self.issues_found = []
+        self.fixes_applied = []
+        
+    def log(self, message, level="INFO"):
+        """Log formatado com timestamp"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        prefix = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅", 
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "ACTION": "🔧"
+        }
+        print(f"[{timestamp}] {prefix.get(level, 'ℹ️')} {message}")
+    
+    def check_file_exists(self, filename):
+        """Verifica se arquivo existe"""
+        if os.path.exists(filename):
+            self.log(f"{filename} encontrado", "SUCCESS")
+            return True
+        else:
+            self.log(f"{filename} AUSENTE", "ERROR")
+            self.issues_found.append(f"Arquivo {filename} não encontrado")
+            return False
+    
+    def check_git_status(self):
+        """Verifica status do git"""
+        try:
+            result = subprocess.run(['git', 'status', '--porcelain'], 
+                                   capture_output=True, text=True, check=True)
+            
+            if result.stdout.strip():
+                self.log("Alterações não commitadas encontradas", "WARNING")
+                self.issues_found.append("Alterações não commitadas")
+                return False
+            else:
+                self.log("Git status limpo", "SUCCESS")
+                return True
+                
+        except subprocess.CalledProcessError:
+            self.log("Erro ao verificar git status", "ERROR")
+            self.issues_found.append("Problema com git")
+            return False
+    
+    def fix_git_issues(self):
+        """Corrige problemas do git"""
+        self.log("Aplicando correções do git...", "ACTION")
+        
+        try:
+            # Add all changes
+            subprocess.run(['git', 'add', '.'], check=True)
+            self.log("Arquivos adicionados ao git", "SUCCESS")
+            
+            # Commit changes
+            commit_msg = "🚀 Dashboard Baker v3.0 - Correção Automática"
+            subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
+            self.log("Commit realizado", "SUCCESS")
+            
+            # Push to remote
+            subprocess.run(['git', 'push', 'origin', 'main'], check=True)
+            self.log("Push realizado com sucesso", "SUCCESS")
+            
+            self.fixes_applied.append("Git sincronizado")
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            self.log(f"Erro ao corrigir git: {e}", "ERROR")
+            return False
+    
+    def check_requirements(self):
+        """Verifica requirements.txt"""
+        if not self.check_file_exists("requirements.txt"):
+            return False
+            
+        try:
+            with open("requirements.txt", "r") as f:
+                content = f.read()
+                
+            required_packages = [
+                "streamlit", "pandas", "plotly", 
+                "psycopg2-binary", "numpy"
+            ]
+            
+            missing_packages = []
+            for package in required_packages:
+                if package not in content:
+                    missing_packages.append(package)
+            
+            if missing_packages:
+                self.log(f"Pacotes ausentes: {', '.join(missing_packages)}", "WARNING")
+                self.issues_found.append(f"Pacotes ausentes no requirements.txt")
+                return False
+            else:
+                self.log("Requirements.txt válido", "SUCCESS")
+                return True
+                
+        except Exception as e:
+            self.log(f"Erro ao verificar requirements: {e}", "ERROR")
+            return False
+    
+    def create_env_example(self):
+        """Cria arquivo .env.example se não existir"""
+        if not os.path.exists(".env.example"):
+            self.log("Criando .env.example...", "ACTION")
+            
+            env_content = """# Dashboard Baker v3.0 - Configuração
+PGHOST=sua-url-supabase.supabase.co
+PGDATABASE=postgres
+PGUSER=postgres
+PGPASSWORD=sua-senha-supabase
+PGPORT=5432
+"""
+            
+            try:
+                with open(".env.example", "w") as f:
+                    f.write(env_content)
+                    
+                self.log(".env.example criado", "SUCCESS")
+                self.fixes_applied.append(".env.example criado")
+                
+            except Exception as e:
+                self.log(f"Erro ao criar .env.example: {e}", "ERROR")
+    
+    def run_system_check(self):
+        """Executa verificação do sistema"""
+        self.log("Executando verificação do sistema...", "ACTION")
+        
+        try:
+            # Import básico
+            import streamlit
+            import pandas  
+            import plotly
+            
+            self.log("Imports principais: OK", "SUCCESS")
+            return True
+            
+        except ImportError as e:
+            self.log(f"Erro de import: {e}", "ERROR")
+            self.issues_found.append(f"Biblioteca ausente: {e}")
+            return False
+    
+    def generate_instructions(self):
+        """Gera instruções para configuração do Streamlit Cloud"""
+        instructions = """
+🚀 PRÓXIMOS PASSOS MANUAIS:
+
+1. Acesse: https://share.streamlit.io/
+2. Encontre sua app: dashboard-transpontual
+3. Clique em ⚙️ Settings
+4. Na seção Secrets, adicione:
+
+PGHOST = "sua-url-supabase.supabase.co"
+PGDATABASE = "postgres"
+PGUSER = "postgres"
+PGPASSWORD = "sua-senha-supabase"
+PGPORT = "5432"
+
+5. Clique em "Reboot app"
+6. Aguarde o deploy: https://dashboard-transpontual.streamlit.app/
+"""
+        
+        print(instructions)
+        
+        # Salvar instruções em arquivo
+        with open("DEPLOY_INSTRUCTIONS.md", "w") as f:
+            f.write(instructions)
+        
+        self.log("Instruções salvas em DEPLOY_INSTRUCTIONS.md", "SUCCESS")
+    
+    def run_diagnosis(self):
+        """Executa diagnóstico completo"""
+        self.log("INICIANDO DIAGNÓSTICO COMPLETO", "INFO")
+        self.log("=" * 50, "INFO")
+        
+        # Verificações básicas
+        all_good = True
+        
+        # 1. Arquivos principais
+        self.log("Verificando arquivos principais...", "ACTION")
+        if not self.check_file_exists("dashboard_baker_web_corrigido.py"):
+            all_good = False
+        
+        # 2. Requirements
+        self.log("Verificando requirements...", "ACTION")  
+        if not self.check_requirements():
+            all_good = False
+        
+        # 3. Git status
+        self.log("Verificando git status...", "ACTION")
+        if not self.check_git_status():
+            all_good = False
+        
+        # 4. System check
+        self.log("Verificando sistema...", "ACTION")
+        if not self.run_system_check():
+            all_good = False
+        
+        return all_good
+    
+    def apply_fixes(self):
+        """Aplica correções automaticamente"""
+        self.log("APLICANDO CORREÇÕES...", "ACTION")
+        
+        # Criar arquivos necessários
+        self.create_env_example()
+        
+        # Corrigir git se necessário
+        if "Alterações não commitadas" in self.issues_found:
+            if self.fix_git_issues():
+                self.log("Git corrigido automaticamente", "SUCCESS")
+        
+        self.log(f"Correções aplicadas: {len(self.fixes_applied)}", "SUCCESS")
+    
+    def run_complete_fix(self):
+        """Executa correção completa"""
+        self.log("🚀 DASHBOARD BAKER v3.0 - CORREÇÃO AUTOMÁTICA", "INFO")
+        self.log("=" * 60, "INFO")
+        
+        # Diagnóstico
+        system_ok = self.run_diagnosis()
+        
+        # Aplicar correções
+        if self.issues_found:
+            self.apply_fixes()
+        
+        # Resumo final
+        self.log("=" * 60, "INFO")
+        self.log("RESUMO FINAL:", "INFO")
+        
+        if self.issues_found:
+            self.log(f"Problemas encontrados: {len(self.issues_found)}", "WARNING")
+            for issue in self.issues_found:
+                self.log(f"  • {issue}", "WARNING")
+        
+        if self.fixes_applied:
+            self.log(f"Correções aplicadas: {len(self.fixes_applied)}", "SUCCESS")
+            for fix in self.fixes_applied:
+                self.log(f"  • {fix}", "SUCCESS")
+        
+        # Gerar instruções finais
+        self.generate_instructions()
+        
+        if len(self.issues_found) <= len(self.fixes_applied):
+            self.log("🎉 SISTEMA PRONTO PARA DEPLOY!", "SUCCESS")
+            return True
+        else:
+            self.log("⚠️ Ações manuais necessárias (veja DEPLOY_INSTRUCTIONS.md)", "WARNING")
+            return False
+
+def main():
+    """Função principal"""
+    fixer = DashboardFixer()
+    
+    if len(sys.argv) > 1 and sys.argv[1] == '--fix':
+        success = fixer.run_complete_fix()
+        return 0 if success else 1
+    else:
+        # Apenas diagnóstico
+        success = fixer.run_diagnosis()
+        print("\n💡 Para aplicar correções, execute: python fix_dashboard.py --fix")
+        return 0 if success else 1
+
+if __name__ == "__main__":
+    sys.exit(main())
