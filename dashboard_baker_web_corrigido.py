@@ -1,3 +1,49 @@
+# --- INÍCIO: suporte a Streamlit Secrets ---
+def _carregar_secrets_para_env():
+    """Carrega valores de st.secrets (Streamlit Cloud) em variáveis de ambiente.
+    Não sobrescreve envs já definidos e mantém compatibilidade com blocos [supabase] e [database]."""
+    try:
+        import streamlit as st  # import local para evitar dependência fora do Streamlit
+        if hasattr(st, "secrets"):
+            supa = st.secrets.get("supabase", {})
+            if supa:
+                import os as _os
+                _os.environ.setdefault("SUPABASE_HOST", str(supa.get("host", "")))
+                _os.environ.setdefault("SUPABASE_DB", str(supa.get("database", "postgres")))
+                _os.environ.setdefault("SUPABASE_USER", str(supa.get("user", "postgres")))
+                _os.environ.setdefault("SUPABASE_PASSWORD", str(supa.get("password", "")))
+                _os.environ.setdefault("SUPABASE_PORT", str(supa.get("port", "5432")))
+                _os.environ.setdefault("DATABASE_ENVIRONMENT", "supabase")
+            db = st.secrets.get("database", {})
+            if db:
+                import os as _os
+                # Mapeia DB_* -> SUPABASE_* (compatibilidade com antigas chaves)
+                mapping = {
+                    "DB_HOST": "SUPABASE_HOST",
+                    "DB_NAME": "SUPABASE_DB",
+                    "DB_USER": "SUPABASE_USER",
+                    "DB_PASSWORD": "SUPABASE_PASSWORD",
+                    "DB_PORT": "SUPABASE_PORT",
+                }
+                for k, target in mapping.items():
+                    if k in db and str(db[k]).strip():
+                        _os.environ.setdefault(target, str(db[k]))
+    except Exception:
+        # Nunca quebra a aplicação por causa de secrets ausentes
+        pass
+
+# Dispara assim que o módulo é carregado
+try:
+    _carregar_secrets_para_env()
+except Exception:
+    pass
+# --- FIM: suporte a Streamlit Secrets ---
+
+
+
+
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
