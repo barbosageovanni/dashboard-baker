@@ -3,7 +3,13 @@ def _carregar_secrets_para_env():
     """Carrega valores de st.secrets (Streamlit Cloud) em variáveis de ambiente.
     Não sobrescreve envs já definidos e mantém compatibilidade com blocos [supabase] e [database]."""
     try:
-        import streamlit as st  # import local para evitar dependência fora do Streamlit
+        import streamlit as st  
+# DEBUG: painel de conexão
+try:
+    _painel_debug_conexao(carregar_configuracao_banco())
+except Exception:
+    pass
+# import local para evitar dependência fora do Streamlit
         if hasattr(st, "secrets"):
             supa = st.secrets.get("supabase", {})
             if supa:
@@ -381,6 +387,31 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ============================================================================
+
+# ============================
+# PAINEL DE DEBUG DE CONEXÃO
+# ============================
+def _painel_debug_conexao(cfg: dict):
+    """Exibe informações de conexão na sidebar para depuração (sem revelar segredos)."""
+    try:
+        import streamlit as st
+        import os
+        host = (cfg or {}).get('host') or os.getenv('SUPABASE_HOST') or os.getenv('DB_HOST') or '—'
+        database = (cfg or {}).get('database') or os.getenv('SUPABASE_DB') or os.getenv('DB_NAME') or '—'
+        user = (cfg or {}).get('user') or os.getenv('SUPABASE_USER') or os.getenv('DB_USER') or '—'
+        env = os.getenv('DATABASE_ENVIRONMENT', 'auto')
+        # máscara de usuário
+        if isinstance(user, str) and len(user) > 1:
+            user_mask = user[0] + '***'
+        else:
+            user_mask = '—'
+        st.sidebar.markdown("### 🔧 Debug da Conexão")
+        st.sidebar.write(f"**Env detectado:** `{_detectar_ambiente()}` *(hint: {env})*")
+        st.sidebar.write(f"**Host:** `{host}`")
+        st.sidebar.write(f"**DB:** `{database}`  |  **User:** `{user_mask}`")
+    except Exception:
+        pass
+
 # CONFIGURAÇÃO DO BANCO POSTGRESQL - VERSÃO CORRIGIDA
 # ============================================================================
 
