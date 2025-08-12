@@ -1,55 +1,3 @@
-# --- INÍCIO: suporte a Streamlit Secrets ---
-def _carregar_secrets_para_env():
-    """Carrega valores de st.secrets (Streamlit Cloud) em variáveis de ambiente.
-    Não sobrescreve envs já definidos e mantém compatibilidade com blocos [supabase] e [database]."""
-    try:
-        import streamlit as st  
-# DEBUG: painel de conexão
-try:
-    _painel_debug_conexao(carregar_configuracao_banco())
-except Exception:
-    pass
-# import local para evitar dependência fora do Streamlit
-        if hasattr(st, "secrets"):
-            supa = st.secrets.get("supabase", {})
-            if supa:
-                import os as _os
-                _os.environ.setdefault("SUPABASE_HOST", str(supa.get("host", "")))
-                _os.environ.setdefault("SUPABASE_DB", str(supa.get("database", "postgres")))
-                _os.environ.setdefault("SUPABASE_USER", str(supa.get("user", "postgres")))
-                _os.environ.setdefault("SUPABASE_PASSWORD", str(supa.get("password", "")))
-                _os.environ.setdefault("SUPABASE_PORT", str(supa.get("port", "5432")))
-                _os.environ.setdefault("DATABASE_ENVIRONMENT", "supabase")
-            db = st.secrets.get("database", {})
-            if db:
-                import os as _os
-                # Mapeia DB_* -> SUPABASE_* (compatibilidade com antigas chaves)
-                mapping = {
-                    "DB_HOST": "SUPABASE_HOST",
-                    "DB_NAME": "SUPABASE_DB",
-                    "DB_USER": "SUPABASE_USER",
-                    "DB_PASSWORD": "SUPABASE_PASSWORD",
-                    "DB_PORT": "SUPABASE_PORT",
-                }
-                for k, target in mapping.items():
-                    if k in db and str(db[k]).strip():
-                        _os.environ.setdefault(target, str(db[k]))
-    except Exception:
-        # Nunca quebra a aplicação por causa de secrets ausentes
-        pass
-
-# Dispara assim que o módulo é carregado
-try:
-    _carregar_secrets_para_env()
-except Exception:
-    pass
-# --- FIM: suporte a Streamlit Secrets ---
-
-
-
-
-
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -60,8 +8,7 @@ Dashboard Baker - VERSÃO FINAL CORRIGIDA v3.0
 ✅ Sistema de Alertas Inteligentes
 ✅ Conciliação em Tempo Real
 ✅ Sistema de Relatórios PDF/Excel
-❌ REMOVIDO: Sistema de Email
-❌ REMOVIDO: Alerta "Envio Final Pendente"
+✅ FUNÇÕES CRUD CORRIGIDAS
 MANTER NOME: dashboard_baker_web_corrigido.py
 """
 
@@ -387,31 +334,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ============================================================================
-
-# ============================
-# PAINEL DE DEBUG DE CONEXÃO
-# ============================
-def _painel_debug_conexao(cfg: dict):
-    """Exibe informações de conexão na sidebar para depuração (sem revelar segredos)."""
-    try:
-        import streamlit as st
-        import os
-        host = (cfg or {}).get('host') or os.getenv('SUPABASE_HOST') or os.getenv('DB_HOST') or '—'
-        database = (cfg or {}).get('database') or os.getenv('SUPABASE_DB') or os.getenv('DB_NAME') or '—'
-        user = (cfg or {}).get('user') or os.getenv('SUPABASE_USER') or os.getenv('DB_USER') or '—'
-        env = os.getenv('DATABASE_ENVIRONMENT', 'auto')
-        # máscara de usuário
-        if isinstance(user, str) and len(user) > 1:
-            user_mask = user[0] + '***'
-        else:
-            user_mask = '—'
-        st.sidebar.markdown("### 🔧 Debug da Conexão")
-        st.sidebar.write(f"**Env detectado:** `{_detectar_ambiente()}` *(hint: {env})*")
-        st.sidebar.write(f"**Host:** `{host}`")
-        st.sidebar.write(f"**DB:** `{database}`  |  **User:** `{user_mask}`")
-    except Exception:
-        pass
-
 # CONFIGURAÇÃO DO BANCO POSTGRESQL - VERSÃO CORRIGIDA
 # ============================================================================
 
@@ -514,7 +436,6 @@ def _carregar_dotenv():
                             valor = valor.strip().strip('"').strip("'")
                             os.environ[chave] = valor
             except:
-
                 pass
 
 def _detectar_ambiente():
@@ -582,7 +503,6 @@ def _testar_conexao(config):
         conn.close()
         return True
     except:
-
         return False
 
 # Configurações de Alertas Inteligentes - REMOVIDO "envio_final_pendente"
@@ -688,7 +608,6 @@ def carregar_dados_postgresql():
     """Carrega dados do PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
-        conn = psycopg2.connect(**config)
 
         query = """
         SELECT 
@@ -702,8 +621,24 @@ def carregar_dados_postgresql():
         LIMIT 5000;
         """
 
-        df = pd.read_sql_query(query, conn)
-        conn.close()
+        # Preferir SQLAlchemy (engine) e fazer fallback para psycopg2
+        try:
+            from sqlalchemy import create_engine
+            from urllib.parse import quote_plus
+            user_enc = quote_plus(str(config.get('user','')))
+            pwd_enc = quote_plus(str(config.get('password','')))
+            host = config.get('host')
+            port = config.get('port', 5432)
+            db   = config.get('database','postgres')
+            params = f"?sslmode={config.get('sslmode')}" if config.get('sslmode') else ""
+            uri = f"postgresql+psycopg2://{user_enc}:{pwd_enc}@{host}:{port}/{db}{params}"
+            engine = create_engine(uri, pool_pre_ping=True)
+            df = pd.read_sql_query(query, engine)
+            engine.dispose()
+        except Exception:
+            conn = psycopg2.connect(**config)
+            df = pd.read_sql_query(query, conn)
+            conn.close()
 
         # CORREÇÃO: Limpar traduções do DataFrame
         if not df.empty:
@@ -735,7 +670,6 @@ def carregar_dados_postgresql():
 
         return pd.DataFrame()
     except Exception as e:
-
         st.error(f"❌ Erro: {str(e)}")
         return pd.DataFrame()
 
@@ -782,7 +716,6 @@ def _criar_tabela():
         st.rerun()
 
     except Exception as e:
-
         st.error(f"❌ Erro ao criar tabela: {e}")
 
 # ============================================================================
@@ -868,7 +801,6 @@ def gerar_metricas_expandidas(df: pd.DataFrame) -> Dict:
                     if penultimo_mes > 0:
                         crescimento_mensal = ((ultimo_mes - penultimo_mes) / penultimo_mes) * 100
         except:
-
             pass
 
     return {
@@ -903,13 +835,7 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
         'ctes_sem_aprovacao': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'ctes_sem_faturas': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'faturas_vencidas': {'qtd': 0, 'valor': 0.0, 'lista': []},
-        'envio_final_pendente': {
-        'dias_limite': 5,
-        'prioridade': 'media',
-        'acao_sugerida': 'Completar envio final dos documentos',
-        'impacto_financeiro': 'baixo'
-    },
-    'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []},
+        'primeiro_envio_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []},
         'envio_final_pendente': {'qtd': 0, 'valor': 0.0, 'lista': []}
     }
 
@@ -1041,7 +967,6 @@ def calcular_alertas_inteligentes(df: pd.DataFrame) -> Dict:
             }
 
     except Exception as e:
-
         st.warning(f"⚠️ Aviso no cálculo de alertas: {str(e)}")
 
     return alertas
@@ -1152,6 +1077,7 @@ def gerar_relatorio_excel(df: pd.DataFrame, metricas: Dict, alertas: Dict, varia
         worksheet1.write(row, 0, metrica)
         if 'Valor' in metrica or 'Receita' in metrica or 'Ticket' in metrica:
             worksheet1.write(row, 1, valor, currency_format)
+        else:
             worksheet1.write(row, 1, valor)
         row += 1
 
@@ -1223,13 +1149,15 @@ def gerar_relatorio_excel(df: pd.DataFrame, metricas: Dict, alertas: Dict, varia
                         try:
                             if pd.notna(valor) and hasattr(valor, 'date'):
                                 worksheet4.write(idx + 1, col, valor, date_format)
+                            else:
                                 worksheet4.write(idx + 1, col, "")
                         except:
-
                             worksheet4.write(idx + 1, col, "")
+                    else:
                         # Para outros tipos de dados
                         if isinstance(valor, (int, float)) and not pd.isna(valor):
                             worksheet4.write(idx + 1, col, valor)
+                        else:
                             worksheet4.write(idx + 1, col, str(valor) if not pd.isna(valor) else "")
                     col += 1
 
@@ -1403,6 +1331,8 @@ class SistemaBaixasAutomaticas:
             resultado = cursor.fetchone()
 
             if not resultado:
+                cursor.close()
+                conn.close()
                 return False, f"CTE {numero_cte} não encontrado"
 
             cte_num, valor_original, baixa_existente = resultado
@@ -1413,6 +1343,8 @@ class SistemaBaixasAutomaticas:
 
             # Verificar se já tem baixa
             if baixa_existente:
+                cursor.close()
+                conn.close()
                 return False, f"CTE {numero_cte} já possui baixa em {baixa_existente}"
 
             # Validar valor da baixa - CORREÇÃO
@@ -1435,7 +1367,6 @@ class SistemaBaixasAutomaticas:
             return True, f"Baixa registrada com sucesso para CTE {numero_cte}"
 
         except Exception as e:
-
             return False, f"Erro ao registrar baixa: {str(e)}"
 
     def processar_baixas_em_lote(self, arquivo_csv: str) -> Dict:
@@ -1469,6 +1400,7 @@ class SistemaBaixasAutomaticas:
                 resultados['processadas'] += 1
                 if sucesso:
                     resultados['sucessos'] += 1
+                else:
                     resultados['erros'] += 1
 
                 resultados['detalhes'].append({
@@ -1480,7 +1412,6 @@ class SistemaBaixasAutomaticas:
             return {'sucesso': True, 'resultados': resultados}
 
         except Exception as e:
-
             return {'sucesso': False, 'erro': str(e)}
 
 # ============================================================================
@@ -1669,9 +1600,9 @@ def processar_data_para_input(data_obj):
                 return data_obj.date()
             else:  # Já é date
                 return data_obj
+        else:
             return None
     except Exception:
-
         return None
 
 
@@ -1721,7 +1652,6 @@ def buscar_cte_postgresql(numero_cte):
     except psycopg2.Error as e:
         return False, f"Erro de banco de dados: {str(e)}"
     except Exception as e:
-
         return False, f"Erro ao buscar CTE: {str(e)}"
 
 def atualizar_cte_postgresql(numero_cte, dados_atualizados):
@@ -1758,12 +1688,12 @@ def atualizar_cte_postgresql(numero_cte, dados_atualizados):
             cursor.close()
             conn.close()
             return True, "CTE atualizado com sucesso!"
+        else:
             cursor.close()
             conn.close()
             return False, "CTE não encontrado para atualização"
 
     except Exception as e:
-
         return False, f"Erro ao atualizar CTE: {str(e)}"
 
 def inserir_cte_postgresql(dados_cte):
@@ -1795,7 +1725,6 @@ def inserir_cte_postgresql(dados_cte):
     except psycopg2.IntegrityError:
         return False, "Erro: CTE já existe no banco de dados"
     except Exception as e:
-
         return False, f"Erro ao inserir CTE: {str(e)}"
 
 def deletar_cte_postgresql(numero_cte):
@@ -1821,7 +1750,6 @@ def deletar_cte_postgresql(numero_cte):
         return True, "CTE deletado com sucesso!"
 
     except Exception as e:
-
         return False, f"Erro ao deletar CTE: {str(e)}"
 
 # ============================================================================
@@ -1979,9 +1907,9 @@ def aba_dashboard_principal_expandido():
                         try:
                             data_str = f" ({item['data_emissao'].strftime('%d/%m/%Y')})"
                         except:
-
                             data_str = ""
                     st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
+        else:
             st.markdown("""
             <div class="status-card-success">
                 <div class="status-number">0</div>
@@ -2009,9 +1937,9 @@ def aba_dashboard_principal_expandido():
                         try:
                             data_str = f" ({item['data_atesto'].strftime('%d/%m/%Y')})"
                         except:
-
                             data_str = ""
                     st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f}{data_str}")
+        else:
             st.markdown("""
             <div class="status-card-success">
                 <div class="status-number">0</div>
@@ -2040,9 +1968,9 @@ def aba_dashboard_principal_expandido():
                         try:
                             days_overdue = (datetime.now().date() - item['data_atesto'].date()).days
                         except:
-
                             days_overdue = 0
                     st.write(f"CTE {item['numero_cte']} - {item['destinatario_nome']} - R$ {item['valor_total']:,.2f} ({days_overdue} dias)")
+        else:
             st.markdown("""
             <div class="status-card-success">
                 <div class="status-number">0</div>
@@ -2105,6 +2033,7 @@ def aba_dashboard_principal_expandido():
             elif col_idx == 1:
                 with col2:
                     st.markdown(card_html, unsafe_allow_html=True)
+            else:
                 with col3:
                     st.markdown(card_html, unsafe_allow_html=True)
 
@@ -2113,6 +2042,7 @@ def aba_dashboard_principal_expandido():
         fig_variacoes = gerar_grafico_variacoes_tempo(variacoes)
         st.plotly_chart(fig_variacoes, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+    else:
         st.info("⚠️ Dados insuficientes para calcular variações temporais")
 
     # ===============================
@@ -2324,7 +2254,9 @@ def aba_sistema_baixas():
                         st.success(f"✅ {mensagem}")
                         st.balloons()
                         st.cache_data.clear()  # Limpar cache
+                    else:
                         st.error(f"❌ {mensagem}")
+                else:
                     st.error("❌ Informe o número do CTE")
 
     with tab2:
@@ -2381,6 +2313,7 @@ def aba_sistema_baixas():
                                 st.write(f"{status_icon} CTE {detalhe['cte']}: {detalhe['mensagem']}")
 
                         st.cache_data.clear()  # Limpar cache
+                    else:
                         st.error(f"❌ Erro: {resultado['erro']}")
 
     with tab3:
@@ -2495,7 +2428,6 @@ def aba_insercao_banco():
         # Botão de submissão
         submitted = st.form_submit_button("💾 Inserir CTE", type="primary", use_container_width=True)
 
-
         if submitted:
             if numero_cte and destinatario and valor_total > 0:
                 # Preparar dados para inserção
@@ -2524,7 +2456,9 @@ def aba_insercao_banco():
                     st.success(f"✅ {mensagem}")
                     st.cache_data.clear()  # Limpar cache para atualizar dados
                     st.balloons()
+                else:
                     st.error(f"❌ {mensagem}")
+            else:
                 st.error("❌ Preencha pelo menos: Número CTE, Destinatário e Valor Total")
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -2560,7 +2494,6 @@ def aba_insercao_banco():
                 else:
                     sucesso, resultado = resultado_busca
             except Exception as e:
-
                 sucesso, resultado = False, f"Erro na busca: {str(e)}"
 
             if sucesso:
@@ -2569,6 +2502,7 @@ def aba_insercao_banco():
                 # Armazenar dados encontrados no session_state
                 st.session_state['cte_encontrado'] = resultado
                 st.session_state['numero_cte_edicao'] = numero_busca
+            else:
                 st.error(f"❌ {resultado}")
                 if 'cte_encontrado' in st.session_state:
                     del st.session_state['cte_encontrado']
@@ -2659,6 +2593,7 @@ def aba_insercao_banco():
 
                     st.balloons()
                     st.rerun()
+                else:
                     st.error(f"❌ {mensagem}")
 
             if cancelar_edicao:
@@ -2693,11 +2628,13 @@ def aba_insercao_banco():
                 if sucesso:
                     st.success(f"✅ {mensagem}")
                     st.cache_data.clear()  # Limpar cache para atualizar dados
+                else:
                     st.error(f"❌ {mensagem}")
+            else:
                 st.error("❌ Marque a confirmação e informe o número do CTE")
 
 def aba_ctes_pendentes():
-    """Aba para análise de CTEs pendentes - REMOVIDO "Envio Final Pendente" """
+    """Aba para análise de CTEs pendentes"""
 
     st.markdown("""
     <div class="main-header">
@@ -2763,7 +2700,7 @@ def aba_ctes_pendentes():
         </div>
         """, unsafe_allow_html=True)
 
-    # Análise detalhada por tipo de pendência - REMOVIDO "Envio Final Pendente"
+    # Análise detalhada por tipo de pendência
     st.markdown("""
     <div class="section-header">
         <div class="section-title">📋 Análise Detalhada por Categoria</div>
@@ -2771,7 +2708,7 @@ def aba_ctes_pendentes():
     </div>
     """, unsafe_allow_html=True)
 
-    # Abas para diferentes tipos de pendência - REMOVIDA aba "Envio Final Pendente"
+    # Abas para diferentes tipos de pendência
     tab1, tab2, tab3 = st.tabs([
         "🚨 Primeiro Envio Pendente", 
         "⏳ Atesto Pendente", 
@@ -2796,9 +2733,9 @@ def aba_ctes_pendentes():
                     try:
                         if hasattr(data_emissao, 'date'):
                             return (hoje - data_emissao.date()).days
+                        else:
                             return 0
                     except:
-
                         return 0
 
                 df_pendente['dias_atraso'] = df_pendente['data_emissao'].apply(calcular_dias_atraso)
@@ -2812,9 +2749,9 @@ def aba_ctes_pendentes():
                     try:
                         if hasattr(data_emissao, 'strftime'):
                             return data_emissao.strftime('%d/%m/%Y')
+                        else:
                             return 'N/A'
                     except:
-
                         return 'N/A'
 
                 df_pendente['data_emissao'] = df_pendente['data_emissao'].apply(formatar_data)
@@ -2829,6 +2766,7 @@ def aba_ctes_pendentes():
                 })
 
                 st.dataframe(corrigir_dataframe_traduzido(df_display), use_container_width=True, hide_index=True)
+        else:
             st.success("✅ Nenhum CTE com primeiro envio pendente")
 
     with tab2:
@@ -2848,9 +2786,9 @@ def aba_ctes_pendentes():
                 try:
                     if hasattr(primeiro_envio, 'date'):
                         return (hoje - primeiro_envio.date()).days
+                    else:
                         return 0
                 except:
-
                     return 0
 
             df_display['dias_desde_envio'] = df_display['primeiro_envio'].apply(calcular_dias_desde_envio)
@@ -2864,9 +2802,9 @@ def aba_ctes_pendentes():
                 try:
                     if hasattr(primeiro_envio, 'strftime'):
                         return primeiro_envio.strftime('%d/%m/%Y')
+                    else:
                         return 'Não enviado'
                 except:
-
                     return 'Não enviado'
 
             df_display['primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
@@ -2881,6 +2819,7 @@ def aba_ctes_pendentes():
             })
 
             st.dataframe(corrigir_dataframe_traduzido(df_display), use_container_width=True, hide_index=True)
+        else:
             st.success("✅ Todos os CTEs possuem atesto")
 
     with tab3:
@@ -2904,9 +2843,9 @@ def aba_ctes_pendentes():
                             if hasattr(item['data_atesto'], 'date'):
                                 days_overdue = (datetime.now().date() - item['data_atesto'].date()).days
                         except:
-
                             days_overdue = 0
                     st.write(f"• CTE {item['numero_cte']} - {days_overdue} dias - R$ {item['valor_total']:,.2f}")
+            else:
                 st.success("✅ Nenhuma fatura vencida")
 
         with col2:
@@ -2925,9 +2864,9 @@ def aba_ctes_pendentes():
                     try:
                         if hasattr(data_atesto, 'date'):
                             return (hoje - data_atesto.date()).days
+                        else:
                             return 0
                     except:
-
                         return 0
 
                 ctes_sem_baixa_todos['dias_sem_baixa'] = ctes_sem_baixa_todos['data_atesto'].apply(calcular_dias_sem_baixa)
@@ -2943,6 +2882,7 @@ def aba_ctes_pendentes():
                 st.write(f"• 31-60 dias: {ate_60_dias}")
                 st.write(f"• 61-90 dias: {ate_90_dias}")
                 st.write(f"• Mais de 90 dias: {mais_90_dias}")
+            else:
                 st.success("✅ Todas as faturas foram baixadas")
 
 def main():
@@ -2952,8 +2892,7 @@ def main():
     if 'dom_cleaned' not in st.session_state:
         st.session_state.dom_cleaned = True
 
-    # Sistema de navegação - REMOVIDA aba "📧 Configurar Email"
-    # Sistema de navegação - REMOVIDA aba "📧 Configurar Email"
+    # Sistema de navegação
     tabs = st.tabs([
         "📊 Dashboard Principal", 
         "💳 Sistema de Baixas", 
@@ -3068,6 +3007,7 @@ def main():
             total_alertas = sum(alerta['qtd'] for alerta in alertas_sidebar.values())
             if total_alertas > 0:
                 st.error(f"🚨 {total_alertas} alertas ativos")
+            else:
                 st.success("✅ Nenhum alerta")
 
             # Indicador de performance geral
@@ -3077,7 +3017,9 @@ def main():
                 st.success(f"🟢 Performance: {taxa_processos_completos:.1f}%")
             elif taxa_processos_completos >= 60:
                 st.warning(f"🟡 Performance: {taxa_processos_completos:.1f}%")
+            else:
                 st.error(f"🔴 Performance: {taxa_processos_completos:.1f}%")
+        else:
             st.error("❌ Sistema Offline")
 
         st.markdown("---")
@@ -3090,7 +3032,7 @@ def main():
             st.success("✅ Cache atualizado")
             st.rerun()
 
-                # SISTEMA DE DOWNLOADS MELHORADO
+        # SISTEMA DE DOWNLOADS MELHORADO
         st.header("📥 Central de Relatórios")
 
         if not df_test.empty:
@@ -3142,7 +3084,6 @@ def main():
                     use_container_width=True
                 )
             except Exception as e:
-
                 st.error(f"❌ Erro Excel: {str(e)[:50]}...")
 
             # Botão HTML
@@ -3158,7 +3099,6 @@ def main():
                     use_container_width=True
                 )
             except Exception as e:
-
                 st.error(f"❌ Erro HTML: {str(e)[:50]}...")
 
             # Botão CSV
@@ -3174,7 +3114,6 @@ def main():
                     use_container_width=True
                 )
             except Exception as e:
-
                 st.error(f"❌ Erro CSV: {str(e)[:50]}...")
 
             st.info("💡 **HTML → PDF:** Abra o arquivo HTML no navegador e pressione Ctrl+P")
