@@ -2895,10 +2895,10 @@ def aba_ctes_pendentes():
                 except:
                     return 0
 
-            df_display['dias_desde_envio'] = df_display['primeiro_envio'].apply(calcular_dias_desde_envio)
+            df_display.loc[:, 'dias_desde_envio'] = df_display['primeiro_envio'].apply(calcular_dias_desde_envio)
 
             # Formatar dados
-            df_display['valor_total'] = df_display['valor_total'].apply(lambda x: f"R$ {x:,.2f}")
+            df_display.loc[:, 'valor_total'] = df_display['valor_total'].apply(lambda x: f"R$ {x:,.2f}")
 
             def formatar_primeiro_envio(primeiro_envio):
                 if pd.isna(primeiro_envio) or primeiro_envio is None:
@@ -2911,7 +2911,7 @@ def aba_ctes_pendentes():
                 except:
                     return 'Não enviado'
 
-            df_display['primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
+            df_display.loc[:, 'primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
 
             # Renomear colunas
             df_display = df_display.rename(columns={
