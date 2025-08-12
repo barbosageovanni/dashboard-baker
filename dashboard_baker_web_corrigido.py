@@ -32,6 +32,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import numpy as np
 import os
+import re
 import json
 import hashlib
 from typing import Dict, List, Tuple, Optional
@@ -422,7 +423,28 @@ def carregar_configuracao_banco():
                     st.success("✅ Conectado ao Supabase PostgreSQL")
                     return config
                 else:
-                    st.error("❌ Falha na conexão com Supabase via secrets")
+                    st.warning("🌐 Conexão direta falhou. Tentando pooler IPv4 via secrets...")
+                    project_ref = secrets.get('SUPABASE_PROJECT_REF')
+                    if not project_ref:
+                        host = secrets.get('SUPABASE_HOST', '')
+                        m = re.search(r'db\.([^.]+)\.supabase\.co', host)
+                        if m:
+                            project_ref = m.group(1)
+                    if project_ref:
+                        pooler_config = {
+                            'host': 'aws-0-sa-east-1.pooler.supabase.com',
+                            'database': secrets.get('SUPABASE_DB', 'postgres'),
+                            'user': f"postgres.{project_ref}",
+                            'password': secrets['SUPABASE_PASSWORD'],
+                            'port': int(secrets.get('SUPABASE_POOLER_PORT', '6543')),
+                            'sslmode': 'require',
+                            'connect_timeout': 10
+                        }
+                        if _testar_conexao(pooler_config):
+                            st.success("✅ Conectado ao Supabase via pooler")
+                            return pooler_config
+                    st.error("❌ Erro de conexão com Supabase PostgreSQL")
+                    st.info("💡 Verifique as credenciais no Streamlit Secrets")
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar Streamlit secrets: {str(e)}")
 
@@ -2968,7 +2990,7 @@ def aba_ctes_pendentes():
                 except:
                     return 'Não enviado'
 
-            df_display['primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
+            df_display.loc[:, 'primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
 
             # Renomear colunas
             df_display = df_display.rename(columns={
