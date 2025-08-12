@@ -459,6 +459,15 @@ def carregar_configuracao_banco():
             st.error("❌ Erro de conexão com Render PostgreSQL")
             return None
 
+    elif ambiente == 'local':
+        config = _config_local()
+        if _testar_conexao(config):
+            st.success("✅ Conectado ao PostgreSQL local")
+            return config
+        else:
+            st.error("❌ Erro de conexão com PostgreSQL local")
+            return None
+
     # 5. Fallback para dados simulados em caso de erro
     st.warning("⚠️ Nenhuma configuração de banco válida encontrada - Usando dados simulados")
     return None
@@ -781,6 +790,10 @@ def _criar_tabela():
     """Cria tabela automaticamente"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            st.error("❌ Configuração do banco não encontrada")
+            return
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1423,10 +1436,13 @@ class SistemaBaixasAutomaticas:
     def __init__(self):
         self.config = carregar_configuracao_banco()
 
-    def registrar_baixa(self, numero_cte: int, data_baixa: datetime.date, 
+    def registrar_baixa(self, numero_cte: int, data_baixa: datetime.date,
                        observacao: str = "", valor_baixa: float = None) -> Tuple[bool, str]:
         """Registra baixa de uma fatura específica com validação"""
         try:
+            if not self.config:
+                return False, "Erro na configuração do banco"
+
             conn = psycopg2.connect(**self.config)
             cursor = conn.cursor()
 
@@ -1762,6 +1778,9 @@ def atualizar_cte_postgresql(numero_cte, dados_atualizados):
     """Atualiza um CTE existente no PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1804,6 +1823,9 @@ def inserir_cte_postgresql(dados_cte):
     """Insere um novo CTE no PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1835,6 +1857,9 @@ def deletar_cte_postgresql(numero_cte):
     """Deleta um CTE do PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
