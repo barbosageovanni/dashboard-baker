@@ -32,6 +32,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import numpy as np
 import os
+import re
 import json
 import hashlib
 from typing import Dict, List, Tuple, Optional
@@ -422,7 +423,28 @@ def carregar_configuracao_banco():
                     st.success("✅ Conectado ao Supabase PostgreSQL")
                     return config
                 else:
-                    st.error("❌ Falha na conexão com Supabase via secrets")
+                    st.warning("🌐 Conexão direta falhou. Tentando pooler IPv4 via secrets...")
+                    project_ref = secrets.get('SUPABASE_PROJECT_REF')
+                    if not project_ref:
+                        host = secrets.get('SUPABASE_HOST', '')
+                        m = re.search(r'db\.([^.]+)\.supabase\.co', host)
+                        if m:
+                            project_ref = m.group(1)
+                    if project_ref:
+                        pooler_config = {
+                            'host': 'aws-0-sa-east-1.pooler.supabase.com',
+                            'database': secrets.get('SUPABASE_DB', 'postgres'),
+                            'user': f"postgres.{project_ref}",
+                            'password': secrets['SUPABASE_PASSWORD'],
+                            'port': int(secrets.get('SUPABASE_POOLER_PORT', '6543')),
+                            'sslmode': 'require',
+                            'connect_timeout': 10
+                        }
+                        if _testar_conexao(pooler_config):
+                            st.success("✅ Conectado ao Supabase via pooler")
+                            return pooler_config
+                    st.error("❌ Erro de conexão com Supabase PostgreSQL")
+                    st.info("💡 Verifique as credenciais no Streamlit Secrets")
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar Streamlit secrets: {str(e)}")
 
@@ -446,6 +468,11 @@ def carregar_configuracao_banco():
             st.success("✅ Conectado ao Supabase PostgreSQL")
             return config
         else:
+            st.warning("🌐 Conexão direta falhou. Tentando pooler IPv4...")
+            pooler_config = _config_supabase_pooler()
+            if _testar_conexao(pooler_config):
+                st.success("✅ Conectado ao Supabase via pooler")
+                return pooler_config
             st.error("❌ Erro de conexão com Supabase PostgreSQL")
             st.info("💡 Verifique se as credenciais estão corretas no arquivo .env")
             return None
@@ -457,6 +484,15 @@ def carregar_configuracao_banco():
             return config
         else:
             st.error("❌ Erro de conexão com Render PostgreSQL")
+            return None
+
+    elif ambiente == 'local':
+        config = _config_local()
+        if _testar_conexao(config):
+            st.success("✅ Conectado ao PostgreSQL local")
+            return config
+        else:
+            st.error("❌ Erro de conexão com PostgreSQL local")
             return None
 
     # 5. Fallback para dados simulados em caso de erro
@@ -498,6 +534,33 @@ def _config_supabase():
         'user': os.getenv('SUPABASE_USER', 'postgres'),
         'password': os.getenv('SUPABASE_PASSWORD'),
         'port': int(os.getenv('SUPABASE_PORT', '5432')),
+        'sslmode': 'require',
+        'connect_timeout': 10
+    }
+
+def _config_supabase_pooler():
+    """Configuração Supabase usando pooler IPv4 (transaction ou session)"""
+    # Derivar project_ref a partir do host padrão se não for fornecido
+    host_direct = os.getenv('SUPABASE_HOST', '')
+    project_ref = os.getenv('SUPABASE_PROJECT_REF')
+    if not project_ref and host_direct.startswith('db.'):
+        partes = host_direct.split('.')
+        if len(partes) > 1:
+            project_ref = partes[1]
+
+    mode = os.getenv('SUPABASE_POOLER_MODE', 'transaction').lower()
+    port = 6543 if mode == 'transaction' else 5432
+
+    usuario = os.getenv('SUPABASE_USER')
+    if not usuario:
+        usuario = f"postgres.{project_ref}" if project_ref else 'postgres'
+
+    return {
+        'host': os.getenv('SUPABASE_POOLER_HOST', 'aws-0-sa-east-1.pooler.supabase.com'),
+        'database': os.getenv('SUPABASE_DB', 'postgres'),
+        'user': usuario,
+        'password': os.getenv('SUPABASE_PASSWORD'),
+        'port': int(os.getenv('SUPABASE_POOLER_PORT', port)),
         'sslmode': 'require',
         'connect_timeout': 10
     }
@@ -781,6 +844,10 @@ def _criar_tabela():
     """Cria tabela automaticamente"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            st.error("❌ Configuração do banco não encontrada")
+            return
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1423,10 +1490,13 @@ class SistemaBaixasAutomaticas:
     def __init__(self):
         self.config = carregar_configuracao_banco()
 
-    def registrar_baixa(self, numero_cte: int, data_baixa: datetime.date, 
+    def registrar_baixa(self, numero_cte: int, data_baixa: datetime.date,
                        observacao: str = "", valor_baixa: float = None) -> Tuple[bool, str]:
         """Registra baixa de uma fatura específica com validação"""
         try:
+            if not self.config:
+                return False, "Erro na configuração do banco"
+
             conn = psycopg2.connect(**self.config)
             cursor = conn.cursor()
 
@@ -1762,6 +1832,9 @@ def atualizar_cte_postgresql(numero_cte, dados_atualizados):
     """Atualiza um CTE existente no PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1804,6 +1877,9 @@ def inserir_cte_postgresql(dados_cte):
     """Insere um novo CTE no PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -1835,6 +1911,9 @@ def deletar_cte_postgresql(numero_cte):
     """Deleta um CTE do PostgreSQL"""
     try:
         config = carregar_configuracao_banco()
+        if not config:
+            return False, "Erro na configuração do banco"
+
         conn = psycopg2.connect(**config)
         cursor = conn.cursor()
 
@@ -2911,7 +2990,7 @@ def aba_ctes_pendentes():
                 except:
                     return 'Não enviado'
 
-            df_display['primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
+            df_display.loc[:, 'primeiro_envio'] = df_display['primeiro_envio'].apply(formatar_primeiro_envio)
 
             # Renomear colunas
             df_display = df_display.rename(columns={
