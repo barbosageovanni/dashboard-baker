@@ -446,6 +446,11 @@ def carregar_configuracao_banco():
             st.success("✅ Conectado ao Supabase PostgreSQL")
             return config
         else:
+            st.warning("🌐 Conexão direta falhou. Tentando pooler IPv4...")
+            pooler_config = _config_supabase_pooler()
+            if _testar_conexao(pooler_config):
+                st.success("✅ Conectado ao Supabase via pooler")
+                return pooler_config
             st.error("❌ Erro de conexão com Supabase PostgreSQL")
             st.info("💡 Verifique se as credenciais estão corretas no arquivo .env")
             return None
@@ -507,6 +512,33 @@ def _config_supabase():
         'user': os.getenv('SUPABASE_USER', 'postgres'),
         'password': os.getenv('SUPABASE_PASSWORD'),
         'port': int(os.getenv('SUPABASE_PORT', '5432')),
+        'sslmode': 'require',
+        'connect_timeout': 10
+    }
+
+def _config_supabase_pooler():
+    """Configuração Supabase usando pooler IPv4 (transaction ou session)"""
+    # Derivar project_ref a partir do host padrão se não for fornecido
+    host_direct = os.getenv('SUPABASE_HOST', '')
+    project_ref = os.getenv('SUPABASE_PROJECT_REF')
+    if not project_ref and host_direct.startswith('db.'):
+        partes = host_direct.split('.')
+        if len(partes) > 1:
+            project_ref = partes[1]
+
+    mode = os.getenv('SUPABASE_POOLER_MODE', 'transaction').lower()
+    port = 6543 if mode == 'transaction' else 5432
+
+    usuario = os.getenv('SUPABASE_USER')
+    if not usuario:
+        usuario = f"postgres.{project_ref}" if project_ref else 'postgres'
+
+    return {
+        'host': os.getenv('SUPABASE_POOLER_HOST', 'aws-0-sa-east-1.pooler.supabase.com'),
+        'database': os.getenv('SUPABASE_DB', 'postgres'),
+        'user': usuario,
+        'password': os.getenv('SUPABASE_PASSWORD'),
+        'port': int(os.getenv('SUPABASE_POOLER_PORT', port)),
         'sslmode': 'require',
         'connect_timeout': 10
     }
