@@ -407,13 +407,24 @@ def carregar_configuracao_banco():
         # Tentar carregar do Streamlit secrets
         if hasattr(st, 'secrets') and 'database' in st.secrets:
             secrets = st.secrets['database']
-            if secrets.get('SUPABASE_HOST') and secrets.get('SUPABASE_PASSWORD'):
+            host = secrets.get('SUPABASE_HOST')
+            password = secrets.get('SUPABASE_PASSWORD')
+            if host and password:
+                project_ref = secrets.get('SUPABASE_PROJECT_REF')
+                if not project_ref:
+                    partes = host.split('.') if host else []
+                    if partes and partes[0] == 'db' and len(partes) > 1:
+                        project_ref = partes[1]
+                    elif partes:
+                        project_ref = partes[0]
+                if not project_ref:
+                    raise ValueError('SUPABASE_PROJECT_REF ausente em secrets e não pôde ser extraído do host')
                 config = {
-                    'host': secrets['SUPABASE_HOST'],
+                    'host': host,
                     'database': secrets.get('SUPABASE_DB', 'postgres'),
-                    'user': secrets.get('SUPABASE_USER', 'postgres'),
-                    'password': secrets['SUPABASE_PASSWORD'],
-                    'port': int(secrets.get('SUPABASE_PORT', '5432')),
+                    'user': f"postgres.{project_ref}",
+                    'password': password,
+                    'port': int(secrets.get('SUPABASE_PORT', '6543')),
                     'sslmode': 'require',
                     'connect_timeout': 10
                 }
@@ -441,7 +452,7 @@ def carregar_configuracao_banco():
     st.info(f"🌍 Ambiente detectado: {ambiente}")
 
     if ambiente == 'supabase':
-        config = _config_supabase()
+        config = _config_supabase_pooler()
         if _testar_conexao(config):
             st.success("✅ Conectado ao Supabase PostgreSQL")
             return config
@@ -490,14 +501,31 @@ def _detectar_ambiente():
     else:
         return 'local'
 
-def _config_supabase():
-    """Configuração Supabase PostgreSQL"""
+def _config_supabase_pooler():
+    """Configuração Supabase PostgreSQL via connection pooler"""
+    host = os.getenv('SUPABASE_HOST')
+    password = os.getenv('SUPABASE_PASSWORD')
+    if not host:
+        raise ValueError('SUPABASE_HOST não definido')
+    if not password:
+        raise ValueError('SUPABASE_PASSWORD não definido')
+
+    project_ref = os.getenv('SUPABASE_PROJECT_REF')
+    if not project_ref:
+        partes = host.split('.') if host else []
+        if partes and partes[0] == 'db' and len(partes) > 1:
+            project_ref = partes[1]
+        elif partes:
+            project_ref = partes[0]
+    if not project_ref:
+        raise ValueError('SUPABASE_PROJECT_REF não definido e não pôde ser extraído do SUPABASE_HOST')
+
     return {
-        'host': os.getenv('SUPABASE_HOST'),
+        'host': host,
         'database': os.getenv('SUPABASE_DB', 'postgres'),
-        'user': os.getenv('SUPABASE_USER', 'postgres'),
-        'password': os.getenv('SUPABASE_PASSWORD'),
-        'port': int(os.getenv('SUPABASE_PORT', '5432')),
+        'user': f"postgres.{project_ref}",
+        'password': password,
+        'port': int(os.getenv('SUPABASE_PORT', '6543')),
         'sslmode': 'require',
         'connect_timeout': 10
     }
