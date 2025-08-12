@@ -395,30 +395,73 @@ def safe_get_value(dicionario, chave, default=''):
     return valor_corrigido if valor_corrigido is not None else default
 
 def carregar_configuracao_banco():
-    """Carrega configuração do banco com sistema de fallback inteligente - SEM RAILWAY"""
+    """Carrega configuração do banco com sistema de fallback inteligente - CORRIGIDO PARA STREAMLIT"""
 
     if not PSYCOPG2_AVAILABLE:
         st.error("❌ psycopg2-binary não encontrado. Execute: pip install psycopg2-binary")
         st.stop()
 
-    # Carregar variáveis de ambiente
+    # 1. PRIMEIRO: Verificar se está no Streamlit Cloud/produção
+    # No Streamlit Cloud, as secrets ficam em st.secrets
+    try:
+        # Tentar carregar do Streamlit secrets
+        if hasattr(st, 'secrets') and 'database' in st.secrets:
+            secrets = st.secrets['database']
+            if secrets.get('SUPABASE_HOST') and secrets.get('SUPABASE_PASSWORD'):
+                config = {
+                    'host': secrets['SUPABASE_HOST'],
+                    'database': secrets.get('SUPABASE_DB', 'postgres'),
+                    'user': secrets.get('SUPABASE_USER', 'postgres'),
+                    'password': secrets['SUPABASE_PASSWORD'],
+                    'port': int(secrets.get('SUPABASE_PORT', '5432')),
+                    'sslmode': 'require',
+                    'connect_timeout': 10
+                }
+                st.success("🔗 Conectando com Supabase via Streamlit Secrets")
+                if _testar_conexao(config):
+                    st.success("✅ Conectado ao Supabase PostgreSQL")
+                    return config
+                else:
+                    st.error("❌ Falha na conexão com Supabase via secrets")
+    except Exception as e:
+        st.warning(f"⚠️ Erro ao carregar Streamlit secrets: {str(e)}")
+
+    # 2. DETECÇÃO DE AMBIENTE CODESPACES
+    if 'CODESPACE_NAME' in os.environ:
+        st.warning("⚠️ **Modo Desenvolvimento - GitHub Codespaces**")
+        st.info("🔧 Conexão com banco externo bloqueada. Usando dados simulados para desenvolvimento.")
+        st.info("🚀 **Para produção:** Deploy no Streamlit Cloud com as credenciais do Supabase")
+        return None  # Retorna None para usar dados simulados
+
+    # 3. Carregar variáveis de ambiente (.env)
     _carregar_dotenv()
 
-    # Detectar e usar configuração adequada
+    # 4. Detectar e usar configuração adequada
     ambiente = _detectar_ambiente()
+    st.info(f"🌍 Ambiente detectado: {ambiente}")
 
     if ambiente == 'supabase':
         config = _config_supabase()
         if _testar_conexao(config):
+            st.success("✅ Conectado ao Supabase PostgreSQL")
             return config
+        else:
+            st.error("❌ Erro de conexão com Supabase PostgreSQL")
+            st.info("💡 Verifique se as credenciais estão corretas no arquivo .env")
+            return None
 
     elif ambiente == 'render':
         config = _config_render()
         if _testar_conexao(config):
+            st.success("✅ Conectado ao Render PostgreSQL")
             return config
+        else:
+            st.error("❌ Erro de conexão com Render PostgreSQL")
+            return None
 
-    # Fallback para local
-    return _config_local()
+    # 5. Fallback para dados simulados em caso de erro
+    st.warning("⚠️ Nenhuma configuração de banco válida encontrada - Usando dados simulados")
+    return None
 
 def _carregar_dotenv():
     """Carrega variáveis de ambiente"""
@@ -599,15 +642,71 @@ VARIACOES_CONFIG = [
     }
 ]
 
+def _gerar_dados_simulados():
+    """Gera dados simulados para desenvolvimento em Codespaces"""
+    import random
+    from datetime import datetime, timedelta
+    
+    # Dados base para simulação
+    empresas = ['Empresa Alpha Ltda', 'Beta Transportes', 'Gamma Logística', 'Delta Corp', 'Epsilon SA']
+    placas = ['ABC1234', 'DEF5678', 'GHI9012', 'JKL3456', 'MNO7890']
+    
+    # Gerar 50 registros simulados
+    dados = []
+    base_date = datetime.now() - timedelta(days=90)
+    
+    for i in range(1, 51):
+        # Datas progressivas
+        data_emissao = base_date + timedelta(days=random.randint(0, 80))
+        data_baixa = data_emissao + timedelta(days=random.randint(1, 30)) if random.random() > 0.3 else None
+        
+        registro = {
+            'numero_cte': 1000 + i,
+            'destinatario_nome': random.choice(empresas),
+            'veiculo_placa': random.choice(placas),
+            'valor_total': round(random.uniform(500, 5000), 2),
+            'data_emissao': data_emissao,
+            'numero_fatura': f'FAT-2025-{1000+i}' if random.random() > 0.2 else None,
+            'data_baixa': data_baixa,
+            'observacao': f'Observação simulada {i}' if random.random() > 0.5 else None,
+            'data_inclusao_fatura': data_emissao + timedelta(days=random.randint(1, 5)) if random.random() > 0.3 else None,
+            'data_envio_processo': data_emissao + timedelta(days=random.randint(2, 10)) if random.random() > 0.4 else None,
+            'primeiro_envio': data_emissao + timedelta(days=random.randint(1, 7)) if random.random() > 0.3 else None,
+            'data_rq_tmc': data_emissao + timedelta(days=random.randint(3, 15)) if random.random() > 0.5 else None,
+            'data_atesto': data_emissao + timedelta(days=random.randint(5, 20)) if random.random() > 0.4 else None,
+            'envio_final': data_emissao + timedelta(days=random.randint(7, 25)) if random.random() > 0.6 else None,
+            'origem_dados': 'Simulado',
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        dados.append(registro)
+    
+    df = pd.DataFrame(dados)
+    
+    # Garantir tipos corretos
+    date_columns = ['data_emissao', 'data_baixa', 'data_inclusao_fatura',
+                    'data_envio_processo', 'primeiro_envio', 'data_rq_tmc',
+                    'data_atesto', 'envio_final', 'created_at', 'updated_at']
+    
+    for col in date_columns:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+    
+    return df
+
 # ============================================================================
 # FUNÇÃO DE CACHE OTIMIZADA
 # ============================================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
 def carregar_dados_postgresql():
-    """Carrega dados do PostgreSQL"""
+    """Carrega dados do PostgreSQL ou simula dados para desenvolvimento"""
     try:
         config = carregar_configuracao_banco()
+
+        # Se config é None (Codespaces), usar dados simulados
+        if config is None:
+            return _gerar_dados_simulados()
 
         query = """
         SELECT 
@@ -660,13 +759,18 @@ def carregar_dados_postgresql():
     except psycopg2.OperationalError:
         st.error("❌ Erro de conexão PostgreSQL")
         st.info("💡 Verifique as credenciais do banco")
-        return pd.DataFrame()
+        return _gerar_dados_simulados()
     except psycopg2.ProgrammingError:
         st.error("❌ Tabela 'dashboard_baker' não encontrada")
         st.info("💡 Execute: python inicializar_banco.py")
 
         if st.button("🔧 Criar Tabela Agora"):
             _criar_tabela()
+
+        return _gerar_dados_simulados()
+    except Exception as e:
+        st.warning(f"⚠️ Usando dados simulados devido ao erro: {str(e)[:50]}...")
+        return _gerar_dados_simulados()
 
         return pd.DataFrame()
     except Exception as e:
